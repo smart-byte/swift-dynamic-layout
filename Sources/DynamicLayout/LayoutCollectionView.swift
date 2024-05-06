@@ -60,7 +60,7 @@ public class LayoutCollectionView: NSScrollView, NSCollectionViewDataSource, NSC
         collectionView.collectionViewLayout = layout
         collectionView.isSelectable = true
         collectionView.allowsMultipleSelection = true
-        collectionView.registerForDraggedTypes([.string])
+        collectionView.registerForDraggedTypes([.fileURL])
         collectionView.delegate = self
         collectionView.dataSource = self
 
@@ -217,31 +217,47 @@ extension LayoutCollectionView: NSCollectionViewDelegateFlowLayout {
     }
 
     public func collectionView(_ collectionView: NSCollectionView, pasteboardWriterForItemAt indexPath: IndexPath) -> NSPasteboardWriting? {
+        let item = layoutItems[indexPath.item]
         let pasteboardItem = NSPasteboardItem()
-        pasteboardItem.setString( "\(indexPath.item)", forType: .string)
-        return pasteboardItem
+        pasteboardItem.setString(item.url.absoluteString, forType: .string)
+        pasteboardItem.setData(item.url.dataRepresentation, forType: .fileURL)
+        return item.url as NSPasteboardWriting
     }
 
     public func collectionView(_ collectionView: NSCollectionView, validateDrop info: NSDraggingInfo, proposedIndexPath indexPath: AutoreleasingUnsafeMutablePointer<NSIndexPath>, dropOperation proposedDropOperation: UnsafeMutablePointer<NSCollectionView.DropOperation>) -> NSDragOperation {
         proposedDropOperation.pointee = .before
-        return .move
+
+        if NSApp.currentEvent?.modifierFlags.contains(.option) ?? false {
+            return .copy
+        } else if info.draggingSource as? NSCollectionView == collectionView {
+            return .move
+        } else {
+            return .every
+        }
     }
 
     public func collectionView(_ collectionView: NSCollectionView, acceptDrop info: NSDraggingInfo, indexPath: IndexPath, dropOperation: NSCollectionView.DropOperation) -> Bool {
+        let pasteboard = info.draggingPasteboard
+        let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL]
+        // Füge hier deine Logik hinzu, um die URLs zu verarbeiten
+        
+        return urls != nil
 
-        guard let itemIndexString = info.draggingPasteboard.string(forType: .string),
-              let itemIndex = Int(itemIndexString) else {
-            return false
-        }
+        //        guard let itemIndexUrl = info.draggingPasteboard.data(forType: .fileURL),
+        //              let itemUrl = URL(dataRepresentation: itemIndexUrl, relativeTo: nil)
+        //        else {
+        //            return false
+        //        }
+        //
+        //        let itemIndex = layoutItems.firstIndex(where: { $0.url == itemUrl })!
+        //        let item = layoutItems.remove(at: itemIndex)
+        //        layoutItems.insert(item, at: indexPath.item)
+        //
+        //        updateRowScaling()
+        //
+        //        collectionView.moveItem(at: IndexPath(item: itemIndex, section: 0), to: indexPath)
 
-        let item = layoutItems.remove(at: itemIndex)
-        layoutItems.insert(item, at: indexPath.item)
-
-        updateRowScaling()
-
-        collectionView.animator().moveItem(at: IndexPath(item: itemIndex, section: 0), to: indexPath)
-
-        return true
+     //   return true
     }
 }
 

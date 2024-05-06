@@ -7,7 +7,7 @@
 
 import SwiftUI
 
-public struct DynamicLayout: NSViewRepresentable, Equatable {
+public struct DynamicLayout: NSViewRepresentable /*, Equatable*/ {
     let items: [DynamicLayoutItem]
     let rowHeight: CGFloat
     let spacing: CGFloat
@@ -50,11 +50,11 @@ public struct DynamicLayout: NSViewRepresentable, Equatable {
         }
     }
 
-    public static func == (lhs: DynamicLayout, rhs: DynamicLayout) -> Bool {
-        lhs.rowHeight == rhs.rowHeight &&
-        lhs.spacing == rhs.spacing &&
-        ArraysEqual(lhs.items, rhs.items)
-    }
+//    public static func == (lhs: DynamicLayout, rhs: DynamicLayout) -> Bool {
+//        lhs.rowHeight == rhs.rowHeight &&
+//        lhs.spacing == rhs.spacing &&
+//        ArraysEqual(lhs.items, rhs.items)
+//    }
 
 //    public func makeCoordinator() -> Coordinator {
 //        Coordinator(selection: $selection)
