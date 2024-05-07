@@ -8,6 +8,8 @@
 import SwiftUI
 import AppKit
 
+typealias LayoutItem = ThumbnailItem
+
 public struct FileCollectionView: NSViewRepresentable, Equatable {
     @Binding var fileURLs: [URL]
     @Binding var selection: Set<IndexPath>
@@ -20,9 +22,9 @@ public struct FileCollectionView: NSViewRepresentable, Equatable {
     }
 
     public func makeNSView(context: Context) -> NSScrollView {
-        let layout = NSCollectionViewFlowLayout()
+        let layout = ContactSheetLayout()
         layout.scrollDirection = .vertical
-        layout.itemSize = NSSize(width: 120, height: 120)
+        //        layout.itemSize = NSSize(width: 120, height: 120)
         layout.sectionInset = NSEdgeInsets(top: 20, left: 20, bottom: 20, right: 20)
 
         let collectionView = NSCollectionView()
@@ -33,9 +35,9 @@ public struct FileCollectionView: NSViewRepresentable, Equatable {
         collectionView.dataSource = context.coordinator
         collectionView.delegate = context.coordinator
         collectionView.register(
-            ItemCollectionViewItem.self,
+            LayoutItem.self,
             forItemWithIdentifier: NSUserInterfaceItemIdentifier(
-                rawValue: "ItemCollectionViewItem"
+                rawValue: String(describing: LayoutItem.self)
             )
         )
         collectionView.selectionIndexPaths = selection
@@ -78,9 +80,9 @@ public class Coordinator: NSObject, NSCollectionViewDataSource, NSCollectionView
 
         let item = collectionView.makeItem(
             withIdentifier: NSUserInterfaceItemIdentifier(
-                rawValue: "ItemCollectionViewItem"),
+                rawValue: String(describing: LayoutItem.self) ),
             for: indexPath
-        ) as! ItemCollectionViewItem
+        ) as! LayoutItem
 
         let fileURL = parent.fileURLs[indexPath.item]
         item.configure(with: fileURL)
@@ -95,9 +97,18 @@ public class Coordinator: NSObject, NSCollectionViewDataSource, NSCollectionView
         selection.subtract( indexPaths )
     }
 
+    public func collectionView(_ collectionView: NSCollectionView, draggingImageForItemsAt indexPaths: Set<IndexPath>, with event: NSEvent, offset: NSPointPointer) -> NSImage {
+        let image = NSImage(size: NSSize(width: 100, height: 100))
+
+        return image
+    }
+
     public func collectionView(_ collectionView: NSCollectionView, pasteboardWriterForItemAt indexPath: IndexPath) -> NSPasteboardWriting? {
 
         let url = parent.fileURLs[indexPath.item]
+//        guard let layoutItem = collectionView.item(at: indexPath) as? LayoutItem else {
+//            return nil
+//        }
 
         guard FileManager.default.fileExists(atPath: url.path) else {
             return nil
@@ -105,14 +116,17 @@ public class Coordinator: NSObject, NSCollectionViewDataSource, NSCollectionView
 
         let pasteboardItem = NSPasteboardItem()
         pasteboardItem.setString(url.absoluteString, forType: .fileURL)
+        pasteboardItem.setString(url.lastPathComponent, forType: .string )
         return pasteboardItem
     }
 
     public func collectionView(_ collectionView: NSCollectionView, draggingSession session: NSDraggingSession, willBeginAt screenPoint: NSPoint, forItemsAt indexPaths: Set<IndexPath>) {
+
         let urls = indexPaths.compactMap { indexPath -> URL? in
             return parent.fileURLs[indexPath.item]
         }
         session.draggingPasteboard.writeObjects(urls as [NSPasteboardWriting])
+        session.draggingFormation = .none
     }
 
     public func collectionView(_ collectionView: NSCollectionView, canDragItemsAt indexPaths: Set<IndexPath>, with event: NSEvent) -> Bool {
@@ -131,8 +145,11 @@ public class Coordinator: NSObject, NSCollectionViewDataSource, NSCollectionView
         for url in urls {
             if let index = parent.fileURLs.firstIndex(of: url) {
                 parent.fileURLs.remove(at: index)
+                parent.fileURLs.insert(url, at: index)
+                collectionView.animator().moveItem(at: IndexPath(item: index, section: 0), to: IndexPath(item: index, section: 0))
+            } else {
+                parent.fileURLs.insert(url, at: index)
             }
-            collectionView.animator().insertItems(at: [IndexPath(item: index, section: 0)])
         }
 
         return true
@@ -179,45 +196,6 @@ extension Coordinator: NSPasteboardItemDataProvider {
     public func pasteboard(_ pasteboard: NSPasteboard?, item: NSPasteboardItem, provideDataForType type: NSPasteboard.PasteboardType) {
         if type == .fileURL, let url = item.string(forType: .fileURL) {
             pasteboard?.setString(url, forType: .fileURL)
-        }
-    }
-}
-
-import ImageTools
-
-public class ItemCollectionViewItem: NSCollectionViewItem {
-    public override var isSelected: Bool {
-        didSet {
-            updateSelectionAppearance()
-        }
-    }
-
-    public override func prepareForReuse() {
-        super.prepareForReuse()
-        self.view.layer?.contents = nil
-        self.isSelected = false
-    }
-
-    public override func loadView() {
-        self.view = NSView()
-        self.view.wantsLayer = true
-        self.view.layer?.backgroundColor = CGColor(gray: 0.2, alpha: 0.3)
-        view.layer?.borderWidth = 4.0
-        view.layer?.borderColor = .clear
-        view.layer?.contentsGravity = .resizeAspect
-    }
-
-    public func configure(with url: URL) {
-        ImageCache.shared.image(for: url, maxDimension: 512) { img in
-            self.view.layer?.contents = img
-        }
-    }
-
-    private func updateSelectionAppearance() {
-        if isSelected {
-            self.view.layer?.borderColor = NSColor.orange.cgColor
-        } else {
-            self.view.layer?.borderColor = .clear
         }
     }
 }
