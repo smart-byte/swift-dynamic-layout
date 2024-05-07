@@ -9,7 +9,7 @@ import AppKit
 
 public class ContactSheetLayout: NSCollectionViewFlowLayout {
 
-    let columns: Int = 6
+    let columns: Int = 5
     let spacingPercentage: CGFloat = 0.05  // 5% der Item-Breite
 
     public override func prepare() {

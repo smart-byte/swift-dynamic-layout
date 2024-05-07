@@ -8,7 +8,7 @@
 import SwiftUI
 import AppKit
 
-typealias LayoutItem = ThumbnailItem
+typealias LayoutItem = ThumbnailItem // ContactSheetItem // ThumbnailItem
 
 public struct FileCollectionView: NSViewRepresentable, Equatable {
     @Binding var fileURLs: [URL]

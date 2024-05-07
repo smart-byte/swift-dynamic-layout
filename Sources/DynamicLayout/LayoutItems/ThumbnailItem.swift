@@ -15,8 +15,8 @@ public class ThumbnailItem: NSCollectionViewItem {
         }
     }
 
-    var contentImageView: CustomImageView!
-    var titleLabel: NSTextField!
+    var contentImageView: BorderImageView!
+//    var titleLabel: NSTextField!
 
     public override func prepareForReuse() {
         super.prepareForReuse()
@@ -31,21 +31,21 @@ public class ThumbnailItem: NSCollectionViewItem {
         self.view.layer?.masksToBounds = true
         self.view.autoresizesSubviews = true
 
-        contentImageView = CustomImageView()
+        contentImageView = BorderImageView()
         contentImageView.translatesAutoresizingMaskIntoConstraints = false
-
-        titleLabel = NSTextField()
-        titleLabel.isBezeled = false
-        titleLabel.isEditable = false
-        titleLabel.isSelectable = false
-        titleLabel.drawsBackground = false
-        titleLabel.lineBreakMode = .byTruncatingMiddle
-        titleLabel.maximumNumberOfLines = 1
-        titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        titleLabel.alignment = .center
+        
+//        titleLabel = NSTextField()
+//        titleLabel.isBezeled = false
+//        titleLabel.isEditable = false
+//        titleLabel.isSelectable = false
+//        titleLabel.drawsBackground = false
+//        titleLabel.lineBreakMode = .byTruncatingMiddle
+//        titleLabel.maximumNumberOfLines = 1
+//        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+//        titleLabel.alignment = .center
 
         self.view.addSubview(contentImageView)
-        self.view.addSubview(titleLabel)
+//        self.view.addSubview(titleLabel)
 
         setupConstraints()
     }
@@ -57,10 +57,10 @@ public class ThumbnailItem: NSCollectionViewItem {
             contentImageView.widthAnchor.constraint(equalTo: view.widthAnchor, multiplier: 0.8),
             contentImageView.heightAnchor.constraint(equalTo: view.heightAnchor, multiplier: 0.8),
 
-            titleLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            titleLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            titleLabel.topAnchor.constraint(equalTo: contentImageView.bottomAnchor, constant: 5),
-            titleLabel.heightAnchor.constraint(equalToConstant: 20)
+//            titleLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+//            titleLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+//            titleLabel.topAnchor.constraint(equalTo: contentImageView.bottomAnchor, constant: 5),
+//            titleLabel.heightAnchor.constraint(equalToConstant: 20)
         ])
     }
 
@@ -73,7 +73,7 @@ public class ThumbnailItem: NSCollectionViewItem {
         ImageCache.shared.image(for: url, maxDimension: 512) { img in
             self.contentImageView.image = img
         }
-        self.titleLabel.stringValue = url.lastPathComponent
+//        self.titleLabel.stringValue = url.lastPathComponent
     }
 
     private func updateSelectionAppearance() {
@@ -85,75 +85,100 @@ public class ThumbnailItem: NSCollectionViewItem {
     }
 }
 
-class CustomImageView: NSView {
-    private let imageView = NSImageView()
-    private let backgroundView = NSView()
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        setupViews()
-    }
-
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        setupViews()
-    }
-
-    private func setupViews() {
-        addSubview(backgroundView)
-        addSubview(imageView)
-
-        imageView.wantsLayer = true
-        imageView.layer?.backgroundColor = .clear
-
-        backgroundView.wantsLayer = true
-        backgroundView.layer?.backgroundColor = NSColor.white.cgColor
-//        backgroundView.layer?.shadowOpacity = 0.5
-//        backgroundView.layer?.shadowRadius = 1
-//        backgroundView.layer?.shadowOffset = CGSize(width: 0, height: 0)
-//        backgroundView.layer?.shadowColor = NSColor.black.cgColor
-
-        backgroundView.translatesAutoresizingMaskIntoConstraints = false
-        imageView.translatesAutoresizingMaskIntoConstraints = false
-
-        NSLayoutConstraint.activate([
-            imageView.centerXAnchor.constraint(equalTo: centerXAnchor),
-            imageView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            imageView.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, multiplier: 0.8),
-            imageView.heightAnchor.constraint(lessThanOrEqualTo: heightAnchor, multiplier: 0.8),
-        ])
-
-        updateConstraintsForImage()
-
-        NSLayoutConstraint.activate([
-            backgroundView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            backgroundView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            backgroundView.topAnchor.constraint(equalTo: topAnchor),
-            backgroundView.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
-
-        imageView.imageScaling = .scaleProportionallyUpOrDown
-    }
-
+class BorderImageView: NSView {
+    private var borderImageView = NSImageView()
+    
     var image: NSImage? {
         didSet {
-            imageView.image = image
-            imageView.invalidateIntrinsicContentSize()
-            updateConstraintsForImage()
+//            borderImageView.image = image?.withRelativeBorder(percentage: 0.1, color: overlayColor)
+            borderImageView.image = image?.withRelativeBorderAndThinBorder(percentage: 0.1, borderColor: overlayColor, borderWidthPercentage: 0.005)
         }
     }
-
+    
+    var overlayColor: NSColor = .white
+    
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        
+        setupImageView()
+        configureShadow()
+    }
+    
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setupImageView()
+        configureShadow()
+    }
+    
+    private func setupImageView() {
+        borderImageView.autoresizingMask = [.width, .height]
+        addSubview(borderImageView)
+    }
+    
+    private func configureShadow() {
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor.black.withAlphaComponent(0.5)
+        shadow.shadowOffset = calculateShadowOffset()
+        shadow.shadowBlurRadius = calculateShadowBlurRadius()
+        borderImageView.shadow = shadow
+    }
+    
+    private func calculateShadowBlurRadius() -> CGFloat {
+        return (bounds.width + bounds.height) / 2 * 0.02
+    }
+    
+    private func calculateShadowOffset() -> NSSize {
+        return NSSize(width: 0, height: -(bounds.width + bounds.height) / 2 * 0.02 )
+    }
+    
     override func layout() {
         super.layout()
-        backgroundView.layer?.borderWidth = max(1.0, bounds.width * 0.02) // Beispiel: Rahmenbreite als 2% der Breite
+        configureShadow()
     }
+}
 
-    private func updateConstraintsForImage() {
-        if let image = imageView.image {
-            let aspectRatio = image.size.width / image.size.height
-            imageView.widthAnchor.constraint(equalTo: imageView.heightAnchor, multiplier: aspectRatio).isActive = true
-        } else {
-            imageView.widthAnchor.constraint(equalTo: imageView.heightAnchor).isActive = true
-        }
+extension NSImage {
+    func withRelativeBorder(percentage: CGFloat, color: NSColor) -> NSImage {
+        let border = (size.width + size.height) / 2.0 * percentage
+        
+        let newSize = CGSize(width: size.width + border * 2, height: size.height + border * 2)
+        let newImage = NSImage(size: newSize)
+        let frame = NSRect(origin: CGPoint(x: border, y: border), size: size)
+
+        newImage.lockFocus()
+        
+        color.set()
+        NSBezierPath(rect: NSRect(origin: .zero, size: newSize)).fill()
+        draw(in: frame, from: .zero, operation: .sourceOver, fraction: 1.0)
+        newImage.unlockFocus()
+        
+        return newImage
+    }
+}
+
+extension NSImage {
+    func withRelativeBorderAndThinBorder(percentage: CGFloat, borderColor: NSColor, borderWidthPercentage: CGFloat, borderAlpha: CGFloat = 0.2) -> NSImage {
+        let border = (size.width + size.height) / 2.0 * percentage
+        let borderWidth = (size.width + size.height) / 2.0 * borderWidthPercentage
+
+        let newSize = CGSize(width: size.width + border * 2, height: size.height + border * 2)
+        let newImage = NSImage(size: newSize)
+        let frame = NSRect(origin: CGPoint(x: border, y: border), size: size)
+        
+        newImage.lockFocus()
+        
+        borderColor.set()
+        NSBezierPath(rect: NSRect(origin: .zero, size: newSize)).fill()
+        
+        draw(in: frame, from: .zero, operation: .sourceOver, fraction: 1.0)
+        
+        NSColor(calibratedWhite: 0.0, alpha: borderAlpha).set()
+        let borderPath = NSBezierPath(rect: frame.insetBy(dx: -borderWidth/2, dy: -borderWidth/2))
+        borderPath.lineWidth = borderWidth
+        borderPath.stroke()
+        
+        newImage.unlockFocus()
+        
+        return newImage
     }
 }
