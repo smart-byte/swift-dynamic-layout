@@ -9,8 +9,8 @@ import AppKit
 
 public class ContactSheetLayout: NSCollectionViewFlowLayout {
 
-    let columns: Int = 5
-    let spacingPercentage: CGFloat = 0.05  // 5% der Item-Breite
+    public var columns: Int = 5
+    public var spacingPercentage: CGFloat = 0.05
 
     public override func prepare() {
         super.prepare()
@@ -28,5 +28,6 @@ public class ContactSheetLayout: NSCollectionViewFlowLayout {
         self.itemSize = CGSize(width: itemWidth, height: itemWidth)
         self.minimumInteritemSpacing = itemSpacing
         self.minimumLineSpacing = itemSpacing * 1.2
+        self.scrollDirection = .vertical
     }
 }

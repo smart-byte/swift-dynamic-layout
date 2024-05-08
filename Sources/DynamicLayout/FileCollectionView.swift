@@ -8,23 +8,40 @@
 import SwiftUI
 import AppKit
 
-typealias LayoutItem = ThumbnailItem // ContactSheetItem // ThumbnailItem
+public enum LayoutItemType {
+    case thumbnail
+    case contactSheet
+}
 
 public struct FileCollectionView: NSViewRepresentable, Equatable {
-    @Binding var fileURLs: [URL]
+    @Binding var layoutItems: [DynamicLayoutItem]
     @Binding var selection: Set<IndexPath>
+    @Binding var layoutItemType: LayoutItemType
+    @Binding var itemSpacing: CGFloat
+    @Binding var columns: Int
 
     var collectionView = NSCollectionView()
 
-    public init(fileURLs: Binding<[URL]>, selection: Binding<Set<IndexPath>> = .constant([]) ) {
-        _fileURLs = fileURLs
+    public init(
+        layoutItems: Binding<[DynamicLayoutItem]>,
+        selection: Binding<Set<IndexPath>> = .constant([]),
+        layoutItemType: Binding<LayoutItemType>,
+        itemSpacing: Binding<CGFloat>,
+        Columns: Binding<Int> = .constant(5)
+    ) {
+        _layoutItems = layoutItems
         _selection = selection
+        _layoutItemType = layoutItemType
+        _itemSpacing = itemSpacing
+        _columns = Columns
     }
 
     public func makeNSView(context: Context) -> NSScrollView {
-        let layout = ContactSheetLayout()
-        layout.scrollDirection = .vertical
-        //        layout.itemSize = NSSize(width: 120, height: 120)
+        let layout = MasonryLayout() // ContactSheetLayout() // HorizontalFlowLayout() // ContactSheetLayout()
+
+        layout.items = layoutItems
+        layout.columns = columns
+        layout.spacingPercentage = itemSpacing
         layout.sectionInset = NSEdgeInsets(top: 20, left: 20, bottom: 20, right: 20)
 
         let collectionView = NSCollectionView()
@@ -35,9 +52,15 @@ public struct FileCollectionView: NSViewRepresentable, Equatable {
         collectionView.dataSource = context.coordinator
         collectionView.delegate = context.coordinator
         collectionView.register(
-            LayoutItem.self,
+            ThumbnailItem.self,
             forItemWithIdentifier: NSUserInterfaceItemIdentifier(
-                rawValue: String(describing: LayoutItem.self)
+                rawValue: "ThumbnailItem"
+            )
+        )
+        collectionView.register(
+            ContactSheetItem.self,
+            forItemWithIdentifier: NSUserInterfaceItemIdentifier(
+                rawValue: "ContactSheetItem"
             )
         )
         collectionView.selectionIndexPaths = selection
@@ -53,6 +76,14 @@ public struct FileCollectionView: NSViewRepresentable, Equatable {
 
         collectionView.reloadData()
 
+        if let layout = collectionView.collectionViewLayout as? MasonryLayout {
+            layout.spacingPercentage = itemSpacing
+            layout.items = layoutItems
+        } else if let layout = collectionView.collectionViewLayout as? ContactSheetLayout {
+            layout.spacingPercentage = itemSpacing
+            //layout.items = layoutItems
+        }
+
     }
 
     public func makeCoordinator() -> Coordinator {
@@ -60,7 +91,7 @@ public struct FileCollectionView: NSViewRepresentable, Equatable {
     }
 
     public static func == (lhs: FileCollectionView, rhs: FileCollectionView) -> Bool {
-        lhs.fileURLs == rhs.fileURLs && lhs.selection == rhs.selection
+        lhs.layoutItems == rhs.layoutItems && lhs.selection == rhs.selection
     }
 }
 
@@ -73,19 +104,24 @@ public class Coordinator: NSObject, NSCollectionViewDataSource, NSCollectionView
     }
 
     public func collectionView(_ collectionView: NSCollectionView, numberOfItemsInSection section: Int) -> Int {
-        return parent.fileURLs.count
+        return parent.layoutItems.count
     }
 
     public func collectionView(_ collectionView: NSCollectionView, itemForRepresentedObjectAt indexPath: IndexPath) -> NSCollectionViewItem {
+        let identifier: NSUserInterfaceItemIdentifier
+        let layoutItem = parent.layoutItems[indexPath.item]
 
-        let item = collectionView.makeItem(
-            withIdentifier: NSUserInterfaceItemIdentifier(
-                rawValue: String(describing: LayoutItem.self) ),
-            for: indexPath
-        ) as! LayoutItem
+        if parent.layoutItemType == .thumbnail {
+            identifier = NSUserInterfaceItemIdentifier(rawValue: "ThumbnailItem" )
+            let item = collectionView.makeItem(withIdentifier: identifier, for: indexPath) as! ThumbnailItem
+            item.configure(with: layoutItem.url)
+            return item
+        }
 
-        let fileURL = parent.fileURLs[indexPath.item]
-        item.configure(with: fileURL)
+        identifier = NSUserInterfaceItemIdentifier(rawValue: "ContactSheetItem" )
+        let item = collectionView.makeItem(withIdentifier: identifier, for: indexPath) as! ContactSheetItem
+        item.configure(with: layoutItem.url)
+
         return item
     }
 
@@ -105,10 +141,10 @@ public class Coordinator: NSObject, NSCollectionViewDataSource, NSCollectionView
 
     public func collectionView(_ collectionView: NSCollectionView, pasteboardWriterForItemAt indexPath: IndexPath) -> NSPasteboardWriting? {
 
-        let url = parent.fileURLs[indexPath.item]
-//        guard let layoutItem = collectionView.item(at: indexPath) as? LayoutItem else {
-//            return nil
-//        }
+        let url = parent.layoutItems[indexPath.item].url
+        //        guard let layoutItem = collectionView.item(at: indexPath) as? LayoutItem else {
+        //            return nil
+        //        }
 
         guard FileManager.default.fileExists(atPath: url.path) else {
             return nil
@@ -123,10 +159,11 @@ public class Coordinator: NSObject, NSCollectionViewDataSource, NSCollectionView
     public func collectionView(_ collectionView: NSCollectionView, draggingSession session: NSDraggingSession, willBeginAt screenPoint: NSPoint, forItemsAt indexPaths: Set<IndexPath>) {
 
         let urls = indexPaths.compactMap { indexPath -> URL? in
-            return parent.fileURLs[indexPath.item]
+            return parent.layoutItems[indexPath.item].url
         }
         session.draggingPasteboard.writeObjects(urls as [NSPasteboardWriting])
-        session.draggingFormation = .none
+        session.draggingFormation = .default
+        session.animatesToStartingPositionsOnCancelOrFail = true
     }
 
     public func collectionView(_ collectionView: NSCollectionView, canDragItemsAt indexPaths: Set<IndexPath>, with event: NSEvent) -> Bool {
@@ -134,23 +171,24 @@ public class Coordinator: NSObject, NSCollectionViewDataSource, NSCollectionView
     }
 
     public func collectionView(_ collectionView: NSCollectionView, acceptDrop info: NSDraggingInfo, indexPath: IndexPath, dropOperation: NSCollectionView.DropOperation) -> Bool {
-        let pasteboard = info.draggingPasteboard
+        //        let pasteboard = info.draggingPasteboard
 
-        guard let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL] else {
-            return false
-        }
-
-        let index = indexPath.item
-
-        for url in urls {
-            if let index = parent.fileURLs.firstIndex(of: url) {
-                parent.fileURLs.remove(at: index)
-                parent.fileURLs.insert(url, at: index)
-                collectionView.animator().moveItem(at: IndexPath(item: index, section: 0), to: IndexPath(item: index, section: 0))
-            } else {
-                parent.fileURLs.insert(url, at: index)
-            }
-        }
+        //        guard let layoutItems = pasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL] else {
+        //            return false
+        //        }
+        //
+        //        let index = indexPath.item
+        //       // let layoutItem = parent.layoutItems[indexPath.item]
+        //
+        //        for layoutItem in layoutItems {
+        //            if let index = parent.layoutItems.firstIndex(of: layoutItem) {
+        //                parent.layoutItems.remove(at: index)
+        //                parent.layoutItems.insert(layoutItem, at: index)
+        //                collectionView.animator().moveItem(at: IndexPath(item: index, section: 0), to: IndexPath(item: index, section: 0))
+        //            } else {
+        //                parent.fileURLs.insert(url, at: index)
+        //            }
+        //        }
 
         return true
     }
@@ -178,18 +216,18 @@ public class Coordinator: NSObject, NSCollectionViewDataSource, NSCollectionView
     //        return true
     //    }
 
-    public func collectionView(_ collectionView: NSCollectionView, validateDrop info: NSDraggingInfo, proposedIndexPath indexPath: AutoreleasingUnsafeMutablePointer<NSIndexPath>, dropOperation proposedDropOperation: UnsafeMutablePointer<NSCollectionView.DropOperation>) -> NSDragOperation {
+    //    public func collectionView(_ collectionView: NSCollectionView, validateDrop info: NSDraggingInfo, proposedIndexPath indexPath: AutoreleasingUnsafeMutablePointer<NSIndexPath>, dropOperation proposedDropOperation: UnsafeMutablePointer<NSCollectionView.DropOperation>) -> NSDragOperation {
+    //
+    //        proposedDropOperation.pointee = .on
 
-        proposedDropOperation.pointee = .before
-
-        if NSApp.currentEvent?.modifierFlags.contains(.option) ?? false {
-            return .copy
-        } else if info.draggingSource as? NSCollectionView == collectionView {
-            return .move
-        } else {
-            return .generic
-        }
-    }
+    //        if NSApp.currentEvent?.modifierFlags.contains(.option) ?? false {
+    //            return .copy
+    //        } else if info.draggingSource as? NSCollectionView == collectionView {
+    //            return .move
+    //        } else {
+    //            return .generic
+    //        }
+    //    }
 }
 
 extension Coordinator: NSPasteboardItemDataProvider {
@@ -197,5 +235,12 @@ extension Coordinator: NSPasteboardItemDataProvider {
         if type == .fileURL, let url = item.string(forType: .fileURL) {
             pasteboard?.setString(url, forType: .fileURL)
         }
+    }
+}
+
+extension NSView {
+    func snapshot() -> NSImage {
+        let pdfData = dataWithPDF(inside: bounds)
+        return NSImage(data: pdfData)!
     }
 }

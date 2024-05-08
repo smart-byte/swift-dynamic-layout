@@ -135,6 +135,19 @@ public class LayoutCollectionView: NSScrollView, NSCollectionViewDataSource, NSC
         }
     }
 
+
+
+    private func applyCellSpacing( layout: NSCollectionViewFlowLayout ) {
+        layout.minimumLineSpacing = rowHeight / cellSpacing
+        layout.minimumInteritemSpacing = rowHeight / cellSpacing / 3 * 2
+    }
+
+    private func applyScaling(to rowItemIndices: [Int], with rowScale: CGFloat ) {
+        for rowItemIndex in rowItemIndices {
+            layoutItems[rowItemIndex].layoutPosition.scale = rowScale
+        }
+    }
+
     private func updateRowScaling( minRowHeight: CGFloat ) {
         guard let layout = collectionView.collectionViewLayout as? NSCollectionViewFlowLayout else {
             return
@@ -169,17 +182,6 @@ public class LayoutCollectionView: NSScrollView, NSCollectionViewDataSource, NSC
 
         if !rowItemIndices.isEmpty {
             applyScaling( to: rowItemIndices, with: min( 1 , availableWidth / totalRowWidth ) )
-        }
-    }
-
-    private func applyCellSpacing( layout: NSCollectionViewFlowLayout ) {
-        layout.minimumLineSpacing = rowHeight / cellSpacing
-        layout.minimumInteritemSpacing = rowHeight / cellSpacing / 3 * 2
-    }
-
-    private func applyScaling(to rowItemIndices: [Int], with rowScale: CGFloat ) {
-        for rowItemIndex in rowItemIndices {
-            layoutItems[rowItemIndex].layoutPosition.scale = rowScale
         }
     }
 }

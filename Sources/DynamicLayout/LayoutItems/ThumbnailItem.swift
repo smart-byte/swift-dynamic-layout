@@ -9,14 +9,13 @@ import AppKit
 import ImageTools
 
 public class ThumbnailItem: NSCollectionViewItem {
+    var contentImageView: BorderImageView!
+
     public override var isSelected: Bool {
         didSet {
             updateSelectionAppearance()
         }
     }
-
-    var contentImageView: BorderImageView!
-//    var titleLabel: NSTextField!
 
     public override func prepareForReuse() {
         super.prepareForReuse()
@@ -33,19 +32,8 @@ public class ThumbnailItem: NSCollectionViewItem {
 
         contentImageView = BorderImageView()
         contentImageView.translatesAutoresizingMaskIntoConstraints = false
-        
-//        titleLabel = NSTextField()
-//        titleLabel.isBezeled = false
-//        titleLabel.isEditable = false
-//        titleLabel.isSelectable = false
-//        titleLabel.drawsBackground = false
-//        titleLabel.lineBreakMode = .byTruncatingMiddle
-//        titleLabel.maximumNumberOfLines = 1
-//        titleLabel.translatesAutoresizingMaskIntoConstraints = false
-//        titleLabel.alignment = .center
 
         self.view.addSubview(contentImageView)
-//        self.view.addSubview(titleLabel)
 
         setupConstraints()
     }
@@ -56,11 +44,6 @@ public class ThumbnailItem: NSCollectionViewItem {
             contentImageView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
             contentImageView.widthAnchor.constraint(equalTo: view.widthAnchor, multiplier: 0.8),
             contentImageView.heightAnchor.constraint(equalTo: view.heightAnchor, multiplier: 0.8),
-
-//            titleLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-//            titleLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-//            titleLabel.topAnchor.constraint(equalTo: contentImageView.bottomAnchor, constant: 5),
-//            titleLabel.heightAnchor.constraint(equalToConstant: 20)
         ])
     }
 
@@ -73,7 +56,10 @@ public class ThumbnailItem: NSCollectionViewItem {
         ImageCache.shared.image(for: url, maxDimension: 512) { img in
             self.contentImageView.image = img
         }
-//        self.titleLabel.stringValue = url.lastPathComponent
+    }
+
+    public func configure(with image: NSImage? ) {
+        self.contentImageView.image = image
     }
 
     private func updateSelectionAppearance() {
@@ -91,7 +77,7 @@ class BorderImageView: NSView {
     var image: NSImage? {
         didSet {
 //            borderImageView.image = image?.withRelativeBorder(percentage: 0.1, color: overlayColor)
-            borderImageView.image = image?.withRelativeBorderAndThinBorder(percentage: 0.1, borderColor: overlayColor, borderWidthPercentage: 0.005)
+            borderImageView.image = image?.withRelativeBorderAndThinBorder(percentage: 0.08, borderColor: overlayColor, borderWidthPercentage: 0.005)
         }
     }
     
@@ -112,6 +98,7 @@ class BorderImageView: NSView {
     
     private func setupImageView() {
         borderImageView.autoresizingMask = [.width, .height]
+        borderImageView.imageScaling = .scaleProportionallyUpOrDown
         addSubview(borderImageView)
     }
     
@@ -128,7 +115,7 @@ class BorderImageView: NSView {
     }
     
     private func calculateShadowOffset() -> NSSize {
-        return NSSize(width: 0, height: -(bounds.width + bounds.height) / 2 * 0.02 )
+        return NSSize(width: 0, height: -(bounds.width + bounds.height) / 2 * 0.01 )
     }
     
     override func layout() {

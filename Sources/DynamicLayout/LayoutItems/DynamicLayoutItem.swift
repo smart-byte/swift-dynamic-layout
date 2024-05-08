@@ -1,13 +1,13 @@
 //
 //  DynamicLayoutItem.swift
-//  
+//
 //
 //  Created by Mario Heubach on 17.04.24.
 //
 
 import SwiftUI
 
-public struct DynamicLayoutItem: Identifiable {
+public struct DynamicLayoutItem: Identifiable, Equatable {
     public let id: UUID
     public let url: URL
     public var image: NSImage?
@@ -31,6 +31,10 @@ public struct DynamicLayoutItem: Identifiable {
             width: height * aspectRatio * layoutPosition.scale,
             height: height * layoutPosition.scale
         )
+    }
+
+    public static func == (lhs: DynamicLayoutItem, rhs: DynamicLayoutItem) -> Bool {
+        lhs.id == rhs.id
     }
 }
 
