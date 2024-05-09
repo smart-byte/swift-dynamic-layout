@@ -1,11 +1,9 @@
 //
-//  File.swift
+//  MasonryLayout.swift
 //
 //
 //  Created by Mario Heubach on 08.05.24.
 //
-
-import AppKit
 
 import AppKit
 

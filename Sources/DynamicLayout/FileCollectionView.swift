@@ -6,11 +6,63 @@
 //
 
 import SwiftUI
-import AppKit
+
+public enum LayoutType {
+    case flexibleGrid
+    case masonry
+    case contactSheet
+    case horizontalFlow
+}
 
 public enum LayoutItemType {
     case thumbnail
     case contactSheet
+    case borderless
+    case rounded
+    case floating
+}
+
+public struct LayoutConfiguration {
+    
+    public static let thumbnail = LayoutOptions(
+        layoutType: .contactSheet,
+        itemSpacing: 0.1,
+        columns: 5,
+        layoutItemType: .thumbnail
+    )
+    
+    public static let contactSheet = LayoutOptions(
+        layoutType: .contactSheet,
+        itemSpacing: 0.1,
+        columns: 5,
+        layoutItemType: .contactSheet
+    )
+    
+    public static let mosaic = LayoutOptions(
+        layoutType: .masonry,
+        itemSpacing: 0.1,
+        layoutItemType: .borderless
+    )
+    
+    public static let horizontalFlow = LayoutOptions(
+        layoutType: .horizontalFlow,
+        itemSpacing: 0.1,
+        layoutItemType: .contactSheet
+    )
+    
+    public static let flexibleGrid = LayoutOptions(
+        layoutType: .flexibleGrid,
+        itemSpacing: 0.1,
+        columns: 5,
+        layoutItemType: .borderless
+    )
+}
+
+public struct LayoutOptions {
+    public var layoutType: LayoutType
+    public var itemSpacing: CGFloat
+    public var columns: Int = 5
+    public var layoutItemType: LayoutItemType
 }
 
 public struct FileCollectionView: NSViewRepresentable, Equatable {

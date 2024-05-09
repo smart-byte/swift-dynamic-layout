@@ -60,7 +60,7 @@ internal class LayoutCollectionViewItem: NSCollectionViewItem {
     }
 
     override func mouseEntered(with event: NSEvent) {
-        //  overlayLayer?.flashOpacity( toValue: 1, duration: 0.2 )
+        // overlayLayer?.flashOpacity( toValue: 1, duration: 0.2 )
     }
 
     func configure(with item: DynamicLayoutItem) {
