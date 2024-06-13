@@ -7,12 +7,42 @@
 
 import SwiftUI
 
-public enum LayoutType {
+public enum LayoutType: CaseIterable {
     case flexibleGrid
     case masonry
     case contactSheet
     case horizontalFlow
     case list
+
+    public var name: String {
+        switch self {
+        case .flexibleGrid:
+            return "Flexible Grid"
+        case .masonry:
+            return "Masonry"
+        case .contactSheet:
+            return "Contact Sheet"
+        case .horizontalFlow:
+            return "Horizontal Flow"
+        case .list:
+            return "List"
+        }
+    }
+
+    public var icon: String {
+        switch self {
+        case .flexibleGrid:
+            return "square.grid.2x2"
+        case .masonry:
+            return "square.grid.3x2"
+        case .contactSheet:
+            return "square.grid.2x2.fill"
+        case .horizontalFlow:
+            return "square.grid.3x2.fill"
+        case .list:
+            return "list.bullet"
+        }
+    }
 }
 
 public enum LayoutItemType {
