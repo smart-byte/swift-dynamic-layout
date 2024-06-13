@@ -12,6 +12,7 @@ public enum LayoutType {
     case masonry
     case contactSheet
     case horizontalFlow
+    case list
 }
 
 public enum LayoutItemType {
@@ -20,6 +21,7 @@ public enum LayoutItemType {
     case borderless
     case rounded
     case floating
+    case row
 }
 
 public struct LayoutConfiguration {
@@ -56,6 +58,13 @@ public struct LayoutConfiguration {
         columns: 5,
         layoutItemType: .borderless
     )
+
+    public static let list = LayoutOptions(
+        layoutType: .list,
+        itemSpacing: 0.1,
+        columns: 5,
+        layoutItemType: .row
+    )
 }
 
 public struct LayoutOptions {
@@ -89,11 +98,11 @@ public struct FileCollectionView: NSViewRepresentable, Equatable {
     }
 
     public func makeNSView(context: Context) -> NSScrollView {
-        let layout = MasonryLayout() // ContactSheetLayout() // HorizontalFlowLayout() // ContactSheetLayout()
+        let layout = SimpleListLayout() // MasonryLayout() // ContactSheetLayout() // HorizontalFlowLayout() // ContactSheetLayout()
 
-        layout.items = layoutItems
-        layout.columns = columns
-        layout.spacingPercentage = itemSpacing
+//        layout.items = layoutItems
+//        layout.columns = columns
+//        layout.spacingPercentage = itemSpacing
         layout.sectionInset = NSEdgeInsets(top: 20, left: 20, bottom: 20, right: 20)
 
         let collectionView = NSCollectionView()
@@ -113,6 +122,12 @@ public struct FileCollectionView: NSViewRepresentable, Equatable {
             ContactSheetItem.self,
             forItemWithIdentifier: NSUserInterfaceItemIdentifier(
                 rawValue: "ContactSheetItem"
+            )
+        )
+        collectionView.register(
+            ListItem.self,
+            forItemWithIdentifier: NSUserInterfaceItemIdentifier(
+                rawValue: "ListItem"
             )
         )
         collectionView.selectionIndexPaths = selection
@@ -166,6 +181,13 @@ public class Coordinator: NSObject, NSCollectionViewDataSource, NSCollectionView
         if parent.layoutItemType == .thumbnail {
             identifier = NSUserInterfaceItemIdentifier(rawValue: "ThumbnailItem" )
             let item = collectionView.makeItem(withIdentifier: identifier, for: indexPath) as! ThumbnailItem
+            item.configure(with: layoutItem.url)
+            return item
+        }
+
+        if parent.layoutItemType == .row {
+            identifier = NSUserInterfaceItemIdentifier(rawValue: "ListItem" )
+            let item = collectionView.makeItem(withIdentifier: identifier, for: indexPath) as! ListItem
             item.configure(with: layoutItem.url)
             return item
         }
