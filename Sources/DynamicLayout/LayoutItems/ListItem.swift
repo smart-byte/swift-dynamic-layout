@@ -62,7 +62,7 @@ public class ListItem: NSCollectionViewItem {
             contentImageView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 10),
             contentImageView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
             contentImageView.widthAnchor.constraint(equalToConstant: 40),
-            contentImageView.heightAnchor.constraint(equalToConstant: 40),
+            contentImageView.heightAnchor.constraint(equalToConstant: 34),
 
             nameLabel.leadingAnchor.constraint(equalTo: contentImageView.trailingAnchor, constant: 10),
             nameLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -10),
