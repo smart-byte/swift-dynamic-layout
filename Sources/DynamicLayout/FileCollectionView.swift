@@ -8,7 +8,7 @@
 import SwiftUI
 
 public enum LayoutType: CaseIterable {
-    case flexibleGrid
+//    case flexibleGrid
     case masonry
     case contactSheet
     case horizontalFlow
@@ -16,8 +16,8 @@ public enum LayoutType: CaseIterable {
 
     public var name: String {
         switch self {
-        case .flexibleGrid:
-            return "Flexible Grid"
+//        case .flexibleGrid:
+//            return "Flexible Grid"
         case .masonry:
             return "Masonry"
         case .contactSheet:
@@ -31,8 +31,8 @@ public enum LayoutType: CaseIterable {
 
     public var icon: String {
         switch self {
-        case .flexibleGrid:
-            return "square.grid.2x2"
+//        case .flexibleGrid:
+//            return "square.grid.2x2"
         case .masonry:
             return "square.grid.3x2"
         case .contactSheet:
@@ -54,50 +54,81 @@ public enum LayoutItemType {
     case row
 }
 
-public struct LayoutConfiguration {
+public enum LayoutConfiguration: CaseIterable, Hashable {
     
-    public static let thumbnail = LayoutOptions(
-        layoutType: .contactSheet,
-        itemSpacing: 0.1,
-        columns: 5,
-        layoutItemType: .thumbnail
-    )
-    
-    public static let contactSheet = LayoutOptions(
-        layoutType: .contactSheet,
-        itemSpacing: 0.1,
-        columns: 5,
-        layoutItemType: .contactSheet
-    )
-    
-    public static let mosaic = LayoutOptions(
-        layoutType: .masonry,
-        itemSpacing: 0.1,
-        layoutItemType: .borderless
-    )
-    
-    public static let horizontalFlow = LayoutOptions(
-        layoutType: .horizontalFlow,
-        itemSpacing: 0.1,
-        layoutItemType: .contactSheet
-    )
-    
-    public static let flexibleGrid = LayoutOptions(
-        layoutType: .flexibleGrid,
-        itemSpacing: 0.1,
-        columns: 5,
-        layoutItemType: .borderless
-    )
+    case thumbnail, contactSheet, mosaic, horizontalFlow, list
 
-    public static let list = LayoutOptions(
-        layoutType: .list,
-        itemSpacing: 0.1,
-        columns: 5,
-        layoutItemType: .row
-    )
+    public var name: String {
+        switch self {
+        case .thumbnail:
+            return "Thumbnail"
+        case .contactSheet:
+            return "Contact Sheet"
+        case .mosaic:
+            return "Mosaic"
+        case .horizontalFlow:
+            return "Horizontal Flow"
+        case .list:
+            return "List"
+        }
+    }
+
+    public var icon: String {
+        switch self {
+        case .thumbnail:
+            return "rectangle.3.group.fill"
+        case .contactSheet:
+            return "square.grid.2x2.fill"
+        case .mosaic:
+            return "rectangle.grid.3x2.fill"
+        case .horizontalFlow:
+            return "rectangle.split.3x1.fill"
+        case .list:
+            return "list.bullet.rectangle.fill"
+        }
+    }
+
+    public var options: LayoutOptions {
+        switch self {
+        case .thumbnail:
+            return LayoutOptions(
+                layoutType: .contactSheet,
+                itemSpacing: 0.1,
+                columns: 5,
+                layoutItemType: .thumbnail
+            )
+        case .contactSheet:
+            return LayoutOptions(
+                layoutType: .contactSheet,
+                itemSpacing: 0.1,
+                columns: 5,
+                layoutItemType: .contactSheet
+            )
+
+        case .mosaic:
+            return LayoutOptions(
+                layoutType: .masonry,
+                itemSpacing: 0.1,
+                layoutItemType: .borderless
+            )
+        case .horizontalFlow:
+            return LayoutOptions(
+                layoutType: .horizontalFlow,
+                itemSpacing: 0.1,
+                layoutItemType: .contactSheet
+            )
+        case .list:
+            return LayoutOptions(
+                layoutType: .list,
+                itemSpacing: 0.1,
+                columns: 5,
+                layoutItemType: .row
+            )
+        }
+    }
 }
 
-public struct LayoutOptions {
+public struct LayoutOptions: Hashable {
     public var layoutType: LayoutType
     public var itemSpacing: CGFloat
     public var columns: Int = 5
@@ -107,7 +138,7 @@ public struct LayoutOptions {
 public struct FileCollectionView: NSViewRepresentable, Equatable {
     @Binding var layoutItems: [DynamicLayoutItem]
     @Binding var selection: Set<IndexPath>
-    @Binding var layoutItemType: LayoutItemType
+    @Binding var layoutConfiguration: LayoutConfiguration
     @Binding var itemSpacing: CGFloat
     @Binding var columns: Int
 
@@ -116,28 +147,21 @@ public struct FileCollectionView: NSViewRepresentable, Equatable {
     public init(
         layoutItems: Binding<[DynamicLayoutItem]>,
         selection: Binding<Set<IndexPath>> = .constant([]),
-        layoutItemType: Binding<LayoutItemType>,
+        layoutConfiguration: Binding<LayoutConfiguration>,
         itemSpacing: Binding<CGFloat>,
         Columns: Binding<Int> = .constant(5)
     ) {
         _layoutItems = layoutItems
         _selection = selection
-        _layoutItemType = layoutItemType
+        _layoutConfiguration = layoutConfiguration
         _itemSpacing = itemSpacing
         _columns = Columns
     }
 
     public func makeNSView(context: Context) -> NSScrollView {
-        let layout = SimpleListLayout() // MasonryLayout() // ContactSheetLayout() // HorizontalFlowLayout() // ContactSheetLayout()
-
-//        layout.items = layoutItems
-//        layout.columns = columns
-//        layout.spacingPercentage = itemSpacing
-        layout.sectionInset = NSEdgeInsets(top: 20, left: 20, bottom: 20, right: 20)
-
         let collectionView = NSCollectionView()
         collectionView.registerForDraggedTypes([.fileURL ])
-        collectionView.collectionViewLayout = layout
+        collectionView.collectionViewLayout = getLayout()
         collectionView.isSelectable = true
         collectionView.allowsMultipleSelection = true
         collectionView.dataSource = context.coordinator
@@ -160,6 +184,7 @@ public struct FileCollectionView: NSViewRepresentable, Equatable {
                 rawValue: "ListItem"
             )
         )
+
         collectionView.selectionIndexPaths = selection
 
         let scrollView = NSScrollView()
@@ -170,6 +195,8 @@ public struct FileCollectionView: NSViewRepresentable, Equatable {
 
     public func updateNSView(_ nsView: NSScrollView, context: Context) {
         guard let collectionView = nsView.documentView as? NSCollectionView else { return }
+
+        collectionView.collectionViewLayout = getLayout()
 
         collectionView.reloadData()
 
@@ -188,7 +215,45 @@ public struct FileCollectionView: NSViewRepresentable, Equatable {
     }
 
     public static func == (lhs: FileCollectionView, rhs: FileCollectionView) -> Bool {
-        lhs.layoutItems == rhs.layoutItems && lhs.selection == rhs.selection
+        lhs.layoutItems == rhs.layoutItems && lhs.selection == rhs.selection && lhs.layoutConfiguration == rhs.layoutConfiguration
+    }
+
+    private func getLayout() -> NSCollectionViewLayout {
+        print ("LayoutOptions: \(layoutConfiguration)")
+        switch layoutConfiguration {
+//        case .flexibleGrid:
+//            layout = FlexibleGridLayout()
+        case .mosaic:
+            let masonryLayout = MasonryLayout()
+            masonryLayout.sectionInset = NSEdgeInsets(top: 20, left: 20, bottom: 20, right: 20)
+            masonryLayout.items = layoutItems
+            masonryLayout.columns = columns
+            masonryLayout.spacingPercentage = itemSpacing
+
+            return masonryLayout
+        case .contactSheet:
+            let contactSheetLayout = ContactSheetLayout()
+            contactSheetLayout.sectionInset = NSEdgeInsets(top: 20, left: 20, bottom: 20, right: 20)
+            contactSheetLayout.columns = columns
+            contactSheetLayout.spacingPercentage = itemSpacing
+            return contactSheetLayout
+        case .horizontalFlow:
+            let horizontalFlowLayout = HorizontalFlowLayout()
+            horizontalFlowLayout.sectionInset = NSEdgeInsets(top: 20, left: 20, bottom: 20, right: 20)
+            horizontalFlowLayout.minimumInteritemSpacing = 10
+            horizontalFlowLayout.minimumLineSpacing = 10
+            return horizontalFlowLayout
+        case .list:
+            let simpleListLayout = SimpleListLayout()
+            simpleListLayout.sectionInset = NSEdgeInsets(top: 20, left: 20, bottom: 20, right: 20)
+            return simpleListLayout
+        case .thumbnail:
+            let contactSheetLayout = ContactSheetLayout()
+            contactSheetLayout.sectionInset = NSEdgeInsets(top: 20, left: 20, bottom: 20, right: 20)
+            contactSheetLayout.columns = columns
+            contactSheetLayout.spacingPercentage = itemSpacing
+            return contactSheetLayout
+        }
     }
 }
 
@@ -208,14 +273,14 @@ public class Coordinator: NSObject, NSCollectionViewDataSource, NSCollectionView
         let identifier: NSUserInterfaceItemIdentifier
         let layoutItem = parent.layoutItems[indexPath.item]
 
-        if parent.layoutItemType == .thumbnail {
+        if parent.layoutConfiguration.options.layoutItemType == .thumbnail {
             identifier = NSUserInterfaceItemIdentifier(rawValue: "ThumbnailItem" )
             let item = collectionView.makeItem(withIdentifier: identifier, for: indexPath) as! ThumbnailItem
             item.configure(with: layoutItem.url)
             return item
         }
 
-        if parent.layoutItemType == .row {
+        if parent.layoutConfiguration.options.layoutItemType == .row {
             identifier = NSUserInterfaceItemIdentifier(rawValue: "ListItem" )
             let item = collectionView.makeItem(withIdentifier: identifier, for: indexPath) as! ListItem
             item.configure(with: layoutItem.url)
