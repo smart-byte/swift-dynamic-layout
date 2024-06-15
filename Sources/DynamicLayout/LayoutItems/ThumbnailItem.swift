@@ -64,7 +64,7 @@ public class ThumbnailItem: NSCollectionViewItem {
 
     private func updateSelectionAppearance() {
         if isSelected {
-            self.view.layer?.backgroundColor = CGColor(gray: 0.1, alpha: 0.1)
+            self.view.layer?.backgroundColor = CGColor(gray: 1, alpha: 0.1)
         } else {
             self.view.layer?.backgroundColor = .clear
         }

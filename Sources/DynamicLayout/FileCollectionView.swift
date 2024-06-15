@@ -8,7 +8,7 @@
 import SwiftUI
 
 public enum LayoutType: CaseIterable {
-//    case flexibleGrid
+    //    case flexibleGrid
     case masonry
     case contactSheet
     case horizontalFlow
@@ -16,8 +16,8 @@ public enum LayoutType: CaseIterable {
 
     public var name: String {
         switch self {
-//        case .flexibleGrid:
-//            return "Flexible Grid"
+            //        case .flexibleGrid:
+            //            return "Flexible Grid"
         case .masonry:
             return "Masonry"
         case .contactSheet:
@@ -31,8 +31,8 @@ public enum LayoutType: CaseIterable {
 
     public var icon: String {
         switch self {
-//        case .flexibleGrid:
-//            return "square.grid.2x2"
+            //        case .flexibleGrid:
+            //            return "square.grid.2x2"
         case .masonry:
             return "square.grid.3x2"
         case .contactSheet:
@@ -55,7 +55,7 @@ public enum LayoutItemType {
 }
 
 public enum LayoutConfiguration: CaseIterable, Hashable {
-    
+
     case thumbnail, contactSheet, mosaic, horizontalFlow, list
 
     public var name: String {
@@ -161,7 +161,7 @@ public struct FileCollectionView: NSViewRepresentable, Equatable {
     public func makeNSView(context: Context) -> NSScrollView {
         let collectionView = NSCollectionView()
         collectionView.registerForDraggedTypes([.fileURL ])
-        collectionView.collectionViewLayout = getLayout()
+        collectionView.collectionViewLayout =  getLayout( layoutConfiguration )
         collectionView.isSelectable = true
         collectionView.allowsMultipleSelection = true
         collectionView.dataSource = context.coordinator
@@ -196,7 +196,7 @@ public struct FileCollectionView: NSViewRepresentable, Equatable {
     public func updateNSView(_ nsView: NSScrollView, context: Context) {
         guard let collectionView = nsView.documentView as? NSCollectionView else { return }
 
-        collectionView.collectionViewLayout = getLayout()
+        collectionView.collectionViewLayout = getLayout( layoutConfiguration )
 
         collectionView.reloadData()
 
@@ -218,11 +218,21 @@ public struct FileCollectionView: NSViewRepresentable, Equatable {
         lhs.layoutItems == rhs.layoutItems && lhs.selection == rhs.selection && lhs.layoutConfiguration == rhs.layoutConfiguration
     }
 
-    private func getLayout() -> NSCollectionViewLayout {
-        print ("LayoutOptions: \(layoutConfiguration)")
-        switch layoutConfiguration {
-//        case .flexibleGrid:
-//            layout = FlexibleGridLayout()
+//    private func animateTransition(  to layoutConfiguration: LayoutConfiguration, collectionView: NSCollectionView) {
+//        let newLayout = getLayout( layoutConfiguration )
+//        NSAnimationContext.runAnimationGroup({ context in
+//            context.duration = 0.5
+//            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+//            collectionView.animator().collectionViewLayout = newLayout
+//        }, completionHandler: {
+//            currentLayout = layoutConfiguration
+//        })
+//    }
+
+    private func getLayout( _ config: LayoutConfiguration ) -> NSCollectionViewLayout {
+        switch config {
+            //        case .flexibleGrid:
+            //            layout = FlexibleGridLayout()
         case .mosaic:
             let masonryLayout = MasonryLayout()
             masonryLayout.sectionInset = NSEdgeInsets(top: 20, left: 20, bottom: 20, right: 20)

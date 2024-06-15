@@ -81,6 +81,9 @@ public class MasonryLayout: NSCollectionViewLayout {
     }
 
     public override func layoutAttributesForItem(at indexPath: IndexPath) -> NSCollectionViewLayoutAttributes? {
+        if indexPath.item >= cache.count {
+            return NSCollectionViewLayoutAttributes()
+        }
         return cache[indexPath.item]
     }
 

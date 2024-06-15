@@ -1,6 +1,6 @@
 //
 //  SimpleListLayout.swift
-//  
+//
 //
 //  Created by Mario Heubach on 13.06.24.
 //
@@ -52,6 +52,9 @@ public class SimpleListLayout: NSCollectionViewLayout {
     }
 
     public override func layoutAttributesForItem(at indexPath: IndexPath) -> NSCollectionViewLayoutAttributes {
+        if indexPath.item >= cache.count {
+            return NSCollectionViewLayoutAttributes()
+        }
         return cache[indexPath.item]
     }
 
