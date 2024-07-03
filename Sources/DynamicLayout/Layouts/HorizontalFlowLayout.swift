@@ -8,68 +8,81 @@
 import AppKit
 
 public class HorizontalFlowLayout: NSCollectionViewFlowLayout {
-    // Cache-Array für Layout-Attribute
-    private var cache: [NSCollectionViewLayoutAttributes] = []
-
-    // Gesamtbreite des Inhalts speichern, um collectionViewContentSize festzulegen
-    private var contentWidth: CGFloat = 0
-
-    override init() {
-        super.init()
-        setupLayout()
-    }
-
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        setupLayout()
-    }
-
-    private func setupLayout() {
-        scrollDirection = .horizontal
-        minimumInteritemSpacing = 10
-        minimumLineSpacing = 10
-    }
-
+    public var spacingPercentage: CGFloat = 0.05
+    
+    var items: [DynamicLayoutItem] = []
+    
     public override func prepare() {
         super.prepare()
+        
         guard let collectionView = collectionView else { return }
-
-        // Bereiten Sie den Cache und die Größeninitialisierung vor
-        cache.removeAll()
-        contentWidth = 0
-
-        var xOffset: CGFloat = 0
-        let collectionViewHeight = collectionView.bounds.height
-
-        for item in 0..<collectionView.numberOfItems(inSection: 0) {
-            let indexPath = IndexPath(item: item, section: 0)
-            let aspectRatio = CGFloat.random(in: 0.5...2)
-            let itemWidth = collectionViewHeight * aspectRatio
-            let frame = CGRect(x: xOffset, y: 0, width: itemWidth, height: collectionViewHeight)
-            let insetFrame = frame.insetBy(dx: minimumInteritemSpacing / 2, dy: 0)
-
+        
+        let availableHeight = collectionView.bounds.height - sectionInset.top - sectionInset.bottom
+        let spacing = availableHeight * spacingPercentage
+        
+        self.itemSize = CGSize(width: 100, height: availableHeight) 
+        self.minimumInteritemSpacing = spacing
+        self.minimumLineSpacing = spacing
+        self.scrollDirection = .horizontal
+    }
+    
+    public override var collectionViewContentSize: NSSize {
+        guard let collectionView = collectionView else { return .zero }
+        let numberOfItems = collectionView.numberOfItems(inSection: 0)
+        let totalWidth = (0..<numberOfItems).reduce(sectionInset.left) { (result, index) -> CGFloat in
+            let indexPath = IndexPath(item: index, section: 0)
+            let itemHeight = collectionView.bounds.height - sectionInset.top - sectionInset.bottom
+            let aspectRatio = items[indexPath.item].aspectRatio
+            let itemWidth = itemHeight * aspectRatio
+            return result + itemWidth + minimumInteritemSpacing
+        } - minimumInteritemSpacing + sectionInset.right
+        return CGSize(width: totalWidth, height: collectionView.bounds.height)
+    }
+    
+    public override func layoutAttributesForElements(in rect: NSRect) -> [NSCollectionViewLayoutAttributes] {
+        guard let collectionView = collectionView else { return [] }
+        
+        let numberOfItems = collectionView.numberOfItems(inSection: 0)
+        var attributesArray: [NSCollectionViewLayoutAttributes] = []
+        
+        var xOffset: CGFloat = sectionInset.left
+        let yOffset: CGFloat = sectionInset.top
+        
+        for index in 0..<numberOfItems {
+            let indexPath = IndexPath(item: index, section: 0)
             let attributes = NSCollectionViewLayoutAttributes(forItemWith: indexPath)
-            attributes.frame = insetFrame
-            cache.append(attributes)
-
+            let itemHeight = collectionView.bounds.height - sectionInset.top - sectionInset.bottom
+            let aspectRatio = items[indexPath.item].aspectRatio
+            let itemWidth = itemHeight * aspectRatio
+            
+            attributes.frame = CGRect(x: xOffset, y: yOffset, width: itemWidth, height: itemHeight)
+            if attributes.frame.intersects(rect) {
+                attributesArray.append(attributes)
+            }
+            
             xOffset += itemWidth + minimumInteritemSpacing
         }
-
-        contentWidth = xOffset
+        
+        return attributesArray
     }
-
-    public override var collectionViewContentSize: NSSize {
-        return CGSize(width: contentWidth, height: collectionView?.bounds.height ?? 0)
-    }
-
-    public override func layoutAttributesForElements(in rect: NSRect) -> [NSCollectionViewLayoutAttributes] {
-        return cache.filter { $0.frame.intersects(rect) }
-    }
-
-    public override func layoutAttributesForItem(at indexPath: IndexPath) -> NSCollectionViewLayoutAttributes {
-        if indexPath.item >= cache.count {
-            return NSCollectionViewLayoutAttributes()
+    
+    public override func layoutAttributesForItem(at indexPath: IndexPath) -> NSCollectionViewLayoutAttributes? {
+        guard let collectionView = collectionView else { return nil }
+        
+        let attributes = NSCollectionViewLayoutAttributes(forItemWith: indexPath)
+        let itemHeight = collectionView.bounds.height - sectionInset.top - sectionInset.bottom
+        let aspectRatio = items[indexPath.item].aspectRatio
+        let itemWidth = itemHeight * aspectRatio
+        
+        let xOffset = (0..<indexPath.item).reduce(sectionInset.left) { (result, index) -> CGFloat in
+            let prevIndexPath = IndexPath(item: index, section: 0)
+            let prevAspectRatio = items[prevIndexPath.item].aspectRatio
+            let prevItemWidth = itemHeight * prevAspectRatio
+            return result + prevItemWidth + minimumInteritemSpacing
         }
-        return cache[indexPath.item]
+        
+        attributes.frame = CGRect(x: xOffset, y: sectionInset.top, width: itemWidth, height: itemHeight)
+        
+        return attributes
     }
 }

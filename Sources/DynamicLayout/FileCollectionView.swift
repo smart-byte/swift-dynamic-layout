@@ -249,6 +249,7 @@ public struct FileCollectionView: NSViewRepresentable, Equatable {
             return contactSheetLayout
         case .horizontalFlow:
             let horizontalFlowLayout = HorizontalFlowLayout()
+            horizontalFlowLayout.items = layoutItems
             horizontalFlowLayout.sectionInset = NSEdgeInsets(top: 20, left: 20, bottom: 20, right: 20)
             horizontalFlowLayout.minimumInteritemSpacing = 10
             horizontalFlowLayout.minimumLineSpacing = 10

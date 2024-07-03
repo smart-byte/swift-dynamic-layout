@@ -12,7 +12,7 @@ public class MasonryLayout: NSCollectionViewLayout {
     private var contentHeight: CGFloat = 0
     private var columnWidths: [CGFloat] = []
 
-    var items: [DynamicLayoutItem] = []  // Stellen Sie sicher, dass dies korrekt gefüllt wird
+    var items: [DynamicLayoutItem] = [] 
 
     public var columns: Int = 5
     public var spacingPercentage: CGFloat = 0.05
