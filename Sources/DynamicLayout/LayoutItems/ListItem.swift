@@ -12,23 +12,50 @@ public class ListItem: NSCollectionViewItem {
     var contentImageView: NSImageView!
     var nameLabel: NSTextField!
     var dateLabel: NSTextField!
+    private var currentURL: URL?
 
-    public override var isSelected: Bool {
+    override init(nibName _: NSNib.Name?, bundle _: Bundle?) {
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        return formatter
+    }()
+
+    override public var isSelected: Bool {
         didSet {
             updateSelectionAppearance()
         }
     }
 
-    public override func prepareForReuse() {
+    override public func prepareForReuse() {
         super.prepareForReuse()
-        self.view.layer?.backgroundColor = CGColor(gray: 0.2, alpha: 0.3)
-        self.isSelected = false
+        currentURL = nil
+        contentImageView.image = nil
+        nameLabel.stringValue = ""
+        dateLabel.stringValue = ""
+        view.layer?.backgroundColor = CGColor(gray: 0.2, alpha: 0.3)
+        isSelected = false
+        view.layer?.transform = CATransform3DIdentity
     }
 
-    public override func loadView() {
-        self.view = NSView()
-        self.view.wantsLayer = true
-        self.view.layer?.backgroundColor = CGColor(gray: 0.2, alpha: 0.3)
+    override public func apply(_ layoutAttributes: NSCollectionViewLayoutAttributes) {
+        super.apply(layoutAttributes)
+        view.layer?.transform = CATransform3DIdentity
+    }
+
+    override public func loadView() {
+        view = NSView()
+        view.wantsLayer = true
+        view.layer?.backgroundColor = CGColor(gray: 0.2, alpha: 0.3)
         view.layer?.contentsGravity = .resizeAspect
 
         contentImageView = NSImageView()
@@ -50,9 +77,9 @@ public class ListItem: NSCollectionViewItem {
         dateLabel.textColor = .secondaryLabelColor
         dateLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        self.view.addSubview(contentImageView)
-        self.view.addSubview(nameLabel)
-        self.view.addSubview(dateLabel)
+        view.addSubview(contentImageView)
+        view.addSubview(nameLabel)
+        view.addSubview(dateLabel)
 
         setupConstraints()
     }
@@ -70,35 +97,38 @@ public class ListItem: NSCollectionViewItem {
 
             dateLabel.leadingAnchor.constraint(equalTo: contentImageView.trailingAnchor, constant: 10),
             dateLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -10),
-            dateLabel.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 2)
+            dateLabel.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 2),
         ])
     }
 
     public func configure(with url: URL) {
-        ImageCache.shared.image(for: url, maxDimension: 512) { img in
-            self.contentImageView.image = img
-        }
-        self.nameLabel.stringValue = url.lastPathComponent
-        // Setze das Datum oder andere Metadaten basierend auf der URL
+        currentURL = url
+        nameLabel.stringValue = url.lastPathComponent
+
         if let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
-           let creationDate = attributes[.creationDate] as? Date {
-            let formatter = DateFormatter()
-            formatter.dateStyle = .medium
-            formatter.timeStyle = .none
-            self.dateLabel.stringValue = formatter.string(from: creationDate)
+           let creationDate = attributes[.creationDate] as? Date
+        {
+            dateLabel.stringValue = Self.dateFormatter.string(from: creationDate)
+        }
+
+        ImageCache.shared.image(for: url, maxDimension: 512) { [weak self] img in
+            DispatchQueue.main.async {
+                guard let self, self.currentURL == url else { return }
+                self.contentImageView.image = img
+            }
         }
     }
 
-    public override func viewDidLayout() {
+    override public func viewDidLayout() {
         super.viewDidLayout()
-        self.view.layer?.cornerRadius = 8
+        view.layer?.cornerRadius = 8
     }
 
     private func updateSelectionAppearance() {
         if isSelected {
-            self.view.layer?.backgroundColor = NSColor.selectedControlColor.cgColor
+            view.layer?.backgroundColor = NSColor.selectedControlColor.cgColor
         } else {
-            self.view.layer?.backgroundColor = CGColor(gray: 0.2, alpha: 0.3)
+            view.layer?.backgroundColor = CGColor(gray: 0.2, alpha: 0.3)
         }
     }
 }
