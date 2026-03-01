@@ -7,6 +7,31 @@
 
 import SwiftUI
 
+// MARK: - Item Style
+
+/// Visual presentation style for collection view items.
+public enum ItemStyle: String, CaseIterable, Hashable {
+    case photoFrame
+    case contactSheet
+    case borderless
+
+    public var name: String {
+        switch self {
+        case .photoFrame: "Photo Frame"
+        case .contactSheet: "Contact Sheet"
+        case .borderless: "Borderless"
+        }
+    }
+
+    public var icon: String {
+        switch self {
+        case .photoFrame: "photo.on.rectangle"
+        case .contactSheet: "rectangle.grid.2x2"
+        case .borderless: "rectangle"
+        }
+    }
+}
+
 // MARK: - Layout Mode
 
 /// Single enum for all layout modes. Moodboard is NOT a layout mode —
@@ -42,6 +67,7 @@ public struct FileCollectionView: NSViewRepresentable {
     @Binding var layoutItems: [DynamicLayoutItem]
     @Binding var selection: Set<IndexPath>
     @Binding var layoutMode: LayoutMode
+    @Binding var itemStyle: ItemStyle
     @Binding var itemSpacing: CGFloat
     @Binding var columns: Int
 
@@ -49,12 +75,14 @@ public struct FileCollectionView: NSViewRepresentable {
         layoutItems: Binding<[DynamicLayoutItem]>,
         selection: Binding<Set<IndexPath>> = .constant([]),
         layoutMode: Binding<LayoutMode>,
+        itemStyle: Binding<ItemStyle> = .constant(.photoFrame),
         itemSpacing: Binding<CGFloat>,
         columns: Binding<Int> = .constant(5)
     ) {
         _layoutItems = layoutItems
         _selection = selection
         _layoutMode = layoutMode
+        _itemStyle = itemStyle
         _itemSpacing = itemSpacing
         _columns = columns
     }
@@ -123,6 +151,11 @@ public struct FileCollectionView: NSViewRepresentable {
 
         coordinator.lastSpacing = itemSpacing
         coordinator.lastColumns = columns
+
+        if coordinator.lastItemStyle != itemStyle {
+            coordinator.lastItemStyle = itemStyle
+            collectionView.reloadData()
+        }
     }
 
     public func makeCoordinator() -> Coordinator {
@@ -200,6 +233,7 @@ public class Coordinator: NSObject, NSCollectionViewDataSource, NSCollectionView
     var parent: FileCollectionView
 
     var lastLayoutMode: LayoutMode?
+    var lastItemStyle: ItemStyle?
     var lastItemCount: Int = -1
     var lastItemIDs: [UUID] = []
     var lastSpacing: CGFloat = -1
@@ -220,6 +254,7 @@ public class Coordinator: NSObject, NSCollectionViewDataSource, NSCollectionView
 
         let layoutItem = parent.layoutItems[indexPath.item]
         let item = ThumbnailItem(nibName: nil, bundle: nil)
+        item.itemStyle = parent.itemStyle
         item.configure(with: layoutItem.url)
         return item
     }

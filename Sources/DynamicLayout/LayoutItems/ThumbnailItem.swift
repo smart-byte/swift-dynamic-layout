@@ -9,7 +9,11 @@ import AppKit
 import ImageTools
 
 public class ThumbnailItem: NSCollectionViewItem {
-    var contentImageView: BorderImageView!
+    /// Set before accessing `view` — determines the visual style.
+    var itemStyle: ItemStyle = .photoFrame
+
+    private var borderImageView: BorderImageView?
+    private var plainImageView: NSImageView?
     private var currentURL: URL?
 
     override init(nibName _: NSNib.Name?, bundle _: Bundle?) {
@@ -30,7 +34,8 @@ public class ThumbnailItem: NSCollectionViewItem {
     override public func prepareForReuse() {
         super.prepareForReuse()
         currentURL = nil
-        contentImageView.image = nil
+        borderImageView?.image = nil
+        plainImageView?.image = nil
         isSelected = false
         view.layer?.transform = CATransform3DIdentity
     }
@@ -40,55 +45,117 @@ public class ThumbnailItem: NSCollectionViewItem {
         view.layer?.transform = CATransform3DIdentity
     }
 
+    // MARK: - View Setup (style-dependent)
+
     override public func loadView() {
         view = NSView()
         view.wantsLayer = true
-        view.layer?.backgroundColor = .clear
         view.layer?.masksToBounds = true
         view.autoresizesSubviews = true
 
-        contentImageView = BorderImageView()
-        contentImageView.translatesAutoresizingMaskIntoConstraints = false
-
-        view.addSubview(contentImageView)
-
-        setupConstraints()
+        switch itemStyle {
+        case .photoFrame:
+            setupPhotoFrameStyle()
+        case .contactSheet:
+            setupContactSheetStyle()
+        case .borderless:
+            setupBorderlessStyle()
+        }
     }
 
-    private func setupConstraints() {
+    private func setupPhotoFrameStyle() {
+        view.layer?.backgroundColor = .clear
+
+        let imageView = BorderImageView()
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(imageView)
+        borderImageView = imageView
+
         NSLayoutConstraint.activate([
-            contentImageView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            contentImageView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-            contentImageView.widthAnchor.constraint(equalTo: view.widthAnchor, multiplier: 0.8),
-            contentImageView.heightAnchor.constraint(equalTo: view.heightAnchor, multiplier: 0.8),
+            imageView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            imageView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            imageView.widthAnchor.constraint(equalTo: view.widthAnchor, multiplier: 0.8),
+            imageView.heightAnchor.constraint(equalTo: view.heightAnchor, multiplier: 0.8),
         ])
+    }
+
+    private func setupContactSheetStyle() {
+        view.layer?.backgroundColor = CGColor(gray: 0.2, alpha: 0.3)
+        view.layer?.borderWidth = 4.0
+        view.layer?.borderColor = .clear
+
+        let imageView = NSImageView()
+        imageView.imageScaling = .scaleProportionallyUpOrDown
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(imageView)
+        plainImageView = imageView
+
+        NSLayoutConstraint.activate([
+            imageView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            imageView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            imageView.widthAnchor.constraint(equalTo: view.widthAnchor, multiplier: 0.95),
+            imageView.heightAnchor.constraint(equalTo: view.heightAnchor, multiplier: 0.95),
+        ])
+    }
+
+    private func setupBorderlessStyle() {
+        view.layer?.backgroundColor = .clear
+
+        let imageView = NSImageView()
+        imageView.imageScaling = .scaleProportionallyUpOrDown
+        imageView.autoresizingMask = [.width, .height]
+        imageView.frame = view.bounds
+        view.addSubview(imageView)
+        plainImageView = imageView
     }
 
     override public func viewDidLayout() {
         super.viewDidLayout()
-        view.layer?.cornerRadius = view.bounds.width * 0.1
+        switch itemStyle {
+        case .photoFrame:
+            view.layer?.cornerRadius = view.bounds.width * 0.1
+        case .contactSheet:
+            view.layer?.cornerRadius = view.bounds.width * 0.02
+        case .borderless:
+            view.layer?.cornerRadius = 0
+        }
     }
+
+    // MARK: - Configure
 
     public func configure(with url: URL) {
         currentURL = url
         ImageCache.shared.image(for: url, maxDimension: 512) { [weak self] img in
             DispatchQueue.main.async {
-                // Only apply if this cell still shows the same URL (not reused)
                 guard let self, self.currentURL == url else { return }
-                self.contentImageView.image = img
+                self.setImage(img)
             }
         }
     }
 
     public func configure(with image: NSImage?) {
-        contentImageView.image = image
+        setImage(image)
     }
 
-    private func updateSelectionAppearance() {
-        if isSelected {
-            view.layer?.backgroundColor = CGColor(gray: 1, alpha: 0.1)
+    private func setImage(_ image: NSImage?) {
+        if let borderImageView {
+            borderImageView.image = image
         } else {
-            view.layer?.backgroundColor = .clear
+            plainImageView?.image = image
+        }
+    }
+
+    // MARK: - Selection
+
+    private func updateSelectionAppearance() {
+        switch itemStyle {
+        case .photoFrame:
+            view.layer?.backgroundColor = isSelected ? CGColor(gray: 1, alpha: 0.1) : .clear
+        case .contactSheet:
+            view.layer?.borderColor = isSelected ? NSColor.controlAccentColor.cgColor : .clear
+        case .borderless:
+            view.layer?.borderWidth = isSelected ? 4.0 : 0
+            view.layer?.borderColor = isSelected ? NSColor.controlAccentColor.cgColor : .clear
         }
     }
 }
