@@ -44,6 +44,20 @@ public enum LayoutMode: String, CaseIterable, Hashable {
     case justified
     case horizontalJustified
 
+    /// Layouts available in the toolbar picker.
+    public static let pickerCases: [LayoutMode] = [
+        .list, .justified, .horizontalJustified, .horizontalFlow,
+    ]
+
+    /// Default item style for each layout.
+    public var defaultItemStyle: ItemStyle {
+        switch self {
+        case .waterfall: .photoFrame
+        case .horizontalFlow, .verticalFlow: .borderless
+        default: .contactSheet
+        }
+    }
+
     public var name: String {
         switch self {
         case .list: "List"
