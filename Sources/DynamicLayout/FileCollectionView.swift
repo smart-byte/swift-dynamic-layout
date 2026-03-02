@@ -460,7 +460,10 @@ public class Coordinator: NSObject, NSCollectionViewDataSource, NSCollectionView
         // swiftlint:disable:next force_cast
         let item = collectionView.makeItem(withIdentifier: identifier, for: indexPath) as! ThumbnailItem
         item.itemStyle = parent.itemStyle
-        item.configure(with: layoutItem.url)
+
+        let cellSize = collectionView.layoutAttributesForItem(at: indexPath)?.frame.size
+        let maxDim = max(cellSize?.width ?? 256, cellSize?.height ?? 256)
+        item.configure(with: layoutItem.url, maxDimension: maxDim)
         return item
     }
 

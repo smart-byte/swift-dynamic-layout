@@ -147,11 +147,11 @@ public class ThumbnailItem: NSCollectionViewItem {
         }
     }
 
-    public func configure(with url: URL) {
+    public func configure(with url: URL, maxDimension: CGFloat = 512) {
         currentURL = url
 
         // Synchronous cache hit → store for viewDidLoad (view may not exist yet)
-        if let cached = ImageCache.shared.cachedImage(for: url, maxDimension: 512) {
+        if let cached = ImageCache.shared.cachedImage(for: url, maxDimension: maxDimension) {
             if isViewLoaded {
                 setImage(cached)
             } else {
@@ -160,7 +160,7 @@ public class ThumbnailItem: NSCollectionViewItem {
             return
         }
 
-        ImageCache.shared.image(for: url, maxDimension: 512) { [weak self] img in
+        ImageCache.shared.image(for: url, maxDimension: maxDimension) { [weak self] img in
             DispatchQueue.main.async {
                 guard let self, self.currentURL == url else { return }
                 self.setImage(img)
