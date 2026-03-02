@@ -142,6 +142,55 @@ class NiblessCollectionView: NSCollectionView {
     }
 }
 
+// MARK: - NSScrollView subclass (redirects vertical scroll to horizontal for horizontal-only content)
+
+class AutoScrollView: NSScrollView {
+    override func scrollWheel(with event: NSEvent) {
+        guard let documentView else {
+            super.scrollWheel(with: event)
+            return
+        }
+
+        let canScrollHorizontally = documentView.frame.width > contentView.bounds.width
+        let canScrollVertically = documentView.frame.height > contentView.bounds.height
+
+        if canScrollHorizontally, !canScrollVertically {
+            guard let cgEvent = event.cgEvent?.copy() else {
+                super.scrollWheel(with: event)
+                return
+            }
+            redirectVerticalToHorizontal(cgEvent)
+            guard let modified = NSEvent(cgEvent: cgEvent) else {
+                super.scrollWheel(with: event)
+                return
+            }
+            super.scrollWheel(with: modified)
+        } else {
+            super.scrollWheel(with: event)
+        }
+    }
+
+    private func redirectVerticalToHorizontal(_ cgEvent: CGEvent) {
+        // Line-based deltas (mouse wheel clicks)
+        let lineY = cgEvent.getIntegerValueField(.scrollWheelEventDeltaAxis1)
+        let lineX = cgEvent.getIntegerValueField(.scrollWheelEventDeltaAxis2)
+        cgEvent.setIntegerValueField(.scrollWheelEventDeltaAxis1, value: 0)
+        cgEvent.setIntegerValueField(.scrollWheelEventDeltaAxis2, value: lineX + lineY)
+
+        // Pixel deltas (precision/continuous scrolling)
+        let pointY = cgEvent.getDoubleValueField(.scrollWheelEventPointDeltaAxis1)
+        let pointX = cgEvent.getDoubleValueField(.scrollWheelEventPointDeltaAxis2)
+        cgEvent.setDoubleValueField(.scrollWheelEventPointDeltaAxis1, value: 0)
+        cgEvent.setDoubleValueField(.scrollWheelEventPointDeltaAxis2, value: pointX + pointY)
+
+        // Fixed-point deltas
+        let fixedY = cgEvent.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1)
+        let fixedX = cgEvent.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2)
+        cgEvent.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1, value: 0)
+        cgEvent.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2, value: fixedX + fixedY)
+    }
+}
+
 // MARK: - FileCollectionView (for verticalFlow, horizontalFlow, justified)
 
 public struct FileCollectionView: NSViewRepresentable {
@@ -194,7 +243,7 @@ public struct FileCollectionView: NSViewRepresentable {
 
         collectionView.selectionIndexPaths = selection
 
-        let scrollView = NSScrollView()
+        let scrollView = AutoScrollView()
         scrollView.documentView = collectionView
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
@@ -237,17 +286,17 @@ public struct FileCollectionView: NSViewRepresentable {
             coordinator.lastItemCount = layoutItems.count
             coordinator.lastItemIDs = layoutItems.map(\.id)
 
-            NSAnimationContext.runAnimationGroup({ ctx in
+            NSAnimationContext.runAnimationGroup { ctx in
                 ctx.duration = 0.15
                 collectionView.animator().alphaValue = 0
-            }, completionHandler: {
+            } completionHandler: {
                 collectionView.collectionViewLayout = newLayout
                 collectionView.reloadData()
                 NSAnimationContext.runAnimationGroup { ctx in
                     ctx.duration = 0.15
                     collectionView.animator().alphaValue = 1
                 }
-            })
+            }
         } else if itemsChanged {
             coordinator.lastItemCount = layoutItems.count
             coordinator.lastItemIDs = layoutItems.map(\.id)
