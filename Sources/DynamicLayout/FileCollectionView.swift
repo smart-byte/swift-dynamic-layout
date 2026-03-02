@@ -151,6 +151,7 @@ public struct FileCollectionView: NSViewRepresentable {
     @Binding var itemStyle: ItemStyle
     @Binding var itemSpacing: CGFloat
     @Binding var columns: Int
+    @Binding var targetSize: CGFloat
     let folderURL: URL?
 
     public init(
@@ -160,6 +161,7 @@ public struct FileCollectionView: NSViewRepresentable {
         itemStyle: Binding<ItemStyle> = .constant(.photoFrame),
         itemSpacing: Binding<CGFloat>,
         columns: Binding<Int> = .constant(5),
+        targetSize: Binding<CGFloat> = .constant(200),
         folderURL: URL? = nil
     ) {
         _layoutItems = layoutItems
@@ -168,6 +170,7 @@ public struct FileCollectionView: NSViewRepresentable {
         _itemStyle = itemStyle
         _itemSpacing = itemSpacing
         _columns = columns
+        _targetSize = targetSize
         self.folderURL = folderURL
     }
 
@@ -186,7 +189,7 @@ public struct FileCollectionView: NSViewRepresentable {
             forItemWithIdentifier: NSUserInterfaceItemIdentifier(rawValue: "ThumbnailItem")
         )
 
-        let layout = createLayout(for: layoutMode, items: layoutItems, spacing: itemSpacing, columns: columns)
+        let layout = createLayout(for: layoutMode, items: layoutItems, spacing: itemSpacing, columns: columns, targetSize: targetSize)
         collectionView.collectionViewLayout = layout
 
         collectionView.selectionIndexPaths = selection
@@ -215,6 +218,7 @@ public struct FileCollectionView: NSViewRepresentable {
         let layoutChanged = coordinator.lastLayoutMode != layoutMode
         let spacingChanged = coordinator.lastSpacing != itemSpacing
         let columnsChanged = coordinator.lastColumns != columns
+        let targetSizeChanged = coordinator.lastTargetSize != targetSize
         let folderChanged = coordinator.currentFolderURL != folderURL
 
         coordinator.parent = self
@@ -228,20 +232,22 @@ public struct FileCollectionView: NSViewRepresentable {
         coordinator.currentFolderURL = folderURL
 
         if layoutChanged {
-            let newLayout = createLayout(for: layoutMode, items: layoutItems, spacing: itemSpacing, columns: columns)
+            let newLayout = createLayout(for: layoutMode, items: layoutItems, spacing: itemSpacing, columns: columns, targetSize: targetSize)
             coordinator.lastLayoutMode = layoutMode
+            coordinator.lastItemCount = layoutItems.count
+            coordinator.lastItemIDs = layoutItems.map(\.id)
 
-            NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = 0.3
-                ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                collectionView.animator().collectionViewLayout = newLayout
-            }
-
-            if itemsChanged || layoutChanged {
-                coordinator.lastItemCount = layoutItems.count
-                coordinator.lastItemIDs = layoutItems.map(\.id)
+            NSAnimationContext.runAnimationGroup({ ctx in
+                ctx.duration = 0.15
+                collectionView.animator().alphaValue = 0
+            }, completionHandler: {
+                collectionView.collectionViewLayout = newLayout
                 collectionView.reloadData()
-            }
+                NSAnimationContext.runAnimationGroup { ctx in
+                    ctx.duration = 0.15
+                    collectionView.animator().alphaValue = 1
+                }
+            })
         } else if itemsChanged {
             coordinator.lastItemCount = layoutItems.count
             coordinator.lastItemIDs = layoutItems.map(\.id)
@@ -258,13 +264,14 @@ public struct FileCollectionView: NSViewRepresentable {
                     collectionView.scrollToItems(at: [ip], scrollPosition: [.top, .left])
                 }
             }
-        } else if spacingChanged || columnsChanged {
-            updateLayoutProperties(collectionView.collectionViewLayout, spacing: itemSpacing, columns: columns)
+        } else if spacingChanged || columnsChanged || targetSizeChanged {
+            updateLayoutProperties(collectionView.collectionViewLayout, spacing: itemSpacing, columns: columns, targetSize: targetSize)
             collectionView.collectionViewLayout?.invalidateLayout()
         }
 
         coordinator.lastSpacing = itemSpacing
         coordinator.lastColumns = columns
+        coordinator.lastTargetSize = targetSize
 
         if coordinator.lastItemStyle != itemStyle {
             coordinator.lastItemStyle = itemStyle
@@ -282,7 +289,8 @@ public struct FileCollectionView: NSViewRepresentable {
         for mode: LayoutMode,
         items: [DynamicLayoutItem],
         spacing: CGFloat,
-        columns: Int
+        columns: Int,
+        targetSize: CGFloat = 200
     ) -> NSCollectionViewLayout {
         let insets = NSEdgeInsets(top: 20, left: 20, bottom: 20, right: 20)
 
@@ -315,7 +323,7 @@ public struct FileCollectionView: NSViewRepresentable {
             layout.items = items
             layout.sectionInset = insets
             layout.spacing = 4
-            layout.targetRowHeight = 200
+            layout.targetRowHeight = targetSize
             return layout
 
         case .horizontalJustified:
@@ -323,7 +331,7 @@ public struct FileCollectionView: NSViewRepresentable {
             layout.items = items
             layout.sectionInset = insets
             layout.spacing = 4
-            layout.targetColumnWidth = 200
+            layout.targetColumnWidth = targetSize
             return layout
 
         case .list:
@@ -349,12 +357,16 @@ public struct FileCollectionView: NSViewRepresentable {
         }
     }
 
-    private func updateLayoutProperties(_ layout: NSCollectionViewLayout?, spacing: CGFloat, columns: Int) {
+    private func updateLayoutProperties(_ layout: NSCollectionViewLayout?, spacing: CGFloat, columns: Int, targetSize: CGFloat = 200) {
         if let layout = layout as? VerticalFlowLayout {
             layout.spacingPercentage = spacing
         } else if let layout = layout as? WaterfallLayout {
             layout.spacingPercentage = spacing
             layout.columns = columns
+        } else if let layout = layout as? JustifiedLayout {
+            layout.targetRowHeight = targetSize
+        } else if let layout = layout as? HorizontalJustifiedLayout {
+            layout.targetColumnWidth = targetSize
         }
     }
 }
@@ -370,6 +382,7 @@ public class Coordinator: NSObject, NSCollectionViewDataSource, NSCollectionView
     var lastItemIDs: [UUID] = []
     var lastSpacing: CGFloat = -1
     var lastColumns: Int = -1
+    var lastTargetSize: CGFloat?
     var draggedIndexPaths: Set<IndexPath> = []
     var isDragging = false
     var isProcessingDrop = false
