@@ -7,13 +7,13 @@
 
 import AppKit
 
-public class WaterfallLayout: NSCollectionViewLayout {
+public class WaterfallLayout: NSCollectionViewLayout, LayoutItemsProvider {
     private var cache = [NSCollectionViewLayoutAttributes]()
     private var oldCache: [IndexPath: NSCollectionViewLayoutAttributes] = [:]
     private var contentHeight: CGFloat = 0
     private var computedSpacing: CGFloat = 0
 
-    var items: [DynamicLayoutItem] = []
+    public var items: [DynamicLayoutItem] = []
 
     public var columns: Int = 5
     public var spacingPercentage: CGFloat = 0.05
@@ -74,9 +74,7 @@ public class WaterfallLayout: NSCollectionViewLayout {
     }
 
     override public func layoutAttributesForItem(at indexPath: IndexPath) -> NSCollectionViewLayoutAttributes? {
-        if indexPath.item >= cache.count {
-            return NSCollectionViewLayoutAttributes()
-        }
+        guard indexPath.item < cache.count else { return nil }
         return cache[indexPath.item]
     }
 

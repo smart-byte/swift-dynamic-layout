@@ -5,191 +5,8 @@
 //  Created by Mario Heubach on 29.04.24.
 //
 
+import Quartz
 import SwiftUI
-
-// MARK: - Item Style
-
-/// Visual presentation style for collection view items.
-public enum ItemStyle: String, CaseIterable, Hashable {
-    case photoFrame
-    case contactSheet
-    case borderless
-
-    public var name: String {
-        switch self {
-        case .photoFrame: "Photo Frame"
-        case .contactSheet: "Contact Sheet"
-        case .borderless: "Borderless"
-        }
-    }
-
-    public var icon: String {
-        switch self {
-        case .photoFrame: "photo.on.rectangle"
-        case .contactSheet: "rectangle.grid.2x2"
-        case .borderless: "rectangle"
-        }
-    }
-}
-
-// MARK: - Layout Mode
-
-/// Single enum for all layout modes. Moodboard is NOT a layout mode —
-/// it's a separate system (Phase 4).
-public enum LayoutMode: String, CaseIterable, Hashable {
-    case list
-    case verticalFlow
-    case waterfall
-    case horizontalFlow
-    case justified
-    case horizontalJustified
-
-    /// Layouts available in the toolbar picker.
-    public static let pickerCases: [LayoutMode] = [
-        .list, .justified, .horizontalJustified, .horizontalFlow,
-    ]
-
-    /// Default item style for each layout.
-    public var defaultItemStyle: ItemStyle {
-        switch self {
-        case .waterfall: .photoFrame
-        case .horizontalFlow, .verticalFlow: .borderless
-        default: .contactSheet
-        }
-    }
-
-    public var name: String {
-        switch self {
-        case .list: "List"
-        case .verticalFlow: "Vertical Flow"
-        case .waterfall: "Waterfall"
-        case .horizontalFlow: "Horizontal Flow"
-        case .justified: "Justified"
-        case .horizontalJustified: "Horizontal Justified"
-        }
-    }
-
-    public var icon: String {
-        switch self {
-        case .list: "list.bullet.rectangle.fill"
-        case .verticalFlow: "rectangle.split.1x2.fill"
-        case .waterfall: "rectangle.grid.3x2.fill"
-        case .horizontalFlow: "rectangle.split.3x1.fill"
-        case .justified: "square.grid.2x2.fill"
-        case .horizontalJustified: "rectangle.split.2x1.fill"
-        }
-    }
-}
-
-// MARK: - NSCollectionView subclass (bypasses NIB lookup for SPM module classes)
-
-/// NSCollectionView tries to load a NIB when creating new items via class
-/// registration, even when the class overrides init(nibName:bundle:).
-/// This subclass intercepts `makeItem` to create items programmatically.
-class NiblessCollectionView: NSCollectionView {
-    private var programmaticClasses: [NSUserInterfaceItemIdentifier: NSCollectionViewItem.Type] = [:]
-
-    func registerProgrammatic(
-        _ itemClass: NSCollectionViewItem.Type,
-        forItemWithIdentifier identifier: NSUserInterfaceItemIdentifier
-    ) {
-        programmaticClasses[identifier] = itemClass
-    }
-
-    override func makeItem(
-        withIdentifier identifier: NSUserInterfaceItemIdentifier,
-        for _: IndexPath
-    ) -> NSCollectionViewItem {
-        if let itemClass = programmaticClasses[identifier] {
-            let item = itemClass.init(nibName: nil, bundle: nil)
-            item.identifier = identifier
-            return item
-        }
-        fatalError("Unknown item identifier: \(identifier.rawValue)")
-    }
-
-    // MARK: - Custom Drop Indicator
-
-    private lazy var dropIndicatorView: NSView = {
-        let v = NSView()
-        v.wantsLayer = true
-        v.layer?.backgroundColor = NSColor.controlAccentColor.cgColor
-        v.layer?.cornerRadius = 1.5
-        v.isHidden = true
-        addSubview(v)
-        return v
-    }()
-
-    func showDropIndicator(at frame: CGRect) {
-        dropIndicatorView.frame = frame
-        dropIndicatorView.isHidden = false
-    }
-
-    func hideDropIndicator() {
-        dropIndicatorView.isHidden = true
-    }
-
-    /// Hide the default gap indicator that NSCollectionView adds
-    /// for .before drop operations — we draw our own.
-    override func didAddSubview(_ subview: NSView) {
-        super.didAddSubview(subview)
-        let className = String(describing: type(of: subview))
-        if className.contains("Gap") || className.contains("Drop") {
-            if subview !== dropIndicatorView {
-                subview.isHidden = true
-            }
-        }
-    }
-}
-
-// MARK: - NSScrollView subclass (redirects vertical scroll to horizontal for horizontal-only content)
-
-class AutoScrollView: NSScrollView {
-    override func scrollWheel(with event: NSEvent) {
-        guard let documentView else {
-            super.scrollWheel(with: event)
-            return
-        }
-
-        let canScrollHorizontally = documentView.frame.width > contentView.bounds.width
-        let canScrollVertically = documentView.frame.height > contentView.bounds.height
-
-        if canScrollHorizontally, !canScrollVertically {
-            guard let cgEvent = event.cgEvent?.copy() else {
-                super.scrollWheel(with: event)
-                return
-            }
-            redirectVerticalToHorizontal(cgEvent)
-            guard let modified = NSEvent(cgEvent: cgEvent) else {
-                super.scrollWheel(with: event)
-                return
-            }
-            super.scrollWheel(with: modified)
-        } else {
-            super.scrollWheel(with: event)
-        }
-    }
-
-    private func redirectVerticalToHorizontal(_ cgEvent: CGEvent) {
-        // Line-based deltas (mouse wheel clicks)
-        let lineY = cgEvent.getIntegerValueField(.scrollWheelEventDeltaAxis1)
-        let lineX = cgEvent.getIntegerValueField(.scrollWheelEventDeltaAxis2)
-        cgEvent.setIntegerValueField(.scrollWheelEventDeltaAxis1, value: 0)
-        cgEvent.setIntegerValueField(.scrollWheelEventDeltaAxis2, value: lineX + lineY)
-
-        // Pixel deltas (precision/continuous scrolling)
-        let pointY = cgEvent.getDoubleValueField(.scrollWheelEventPointDeltaAxis1)
-        let pointX = cgEvent.getDoubleValueField(.scrollWheelEventPointDeltaAxis2)
-        cgEvent.setDoubleValueField(.scrollWheelEventPointDeltaAxis1, value: 0)
-        cgEvent.setDoubleValueField(.scrollWheelEventPointDeltaAxis2, value: pointX + pointY)
-
-        // Fixed-point deltas
-        let fixedY = cgEvent.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1)
-        let fixedX = cgEvent.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2)
-        cgEvent.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1, value: 0)
-        cgEvent.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2, value: fixedX + fixedY)
-    }
-}
 
 // MARK: - FileCollectionView (for verticalFlow, horizontalFlow, justified)
 
@@ -202,6 +19,7 @@ public struct FileCollectionView: NSViewRepresentable {
     @Binding var columns: Int
     @Binding var targetSize: CGFloat
     let folderURL: URL?
+    var actionHandler: ItemActionHandler?
 
     public init(
         layoutItems: Binding<[DynamicLayoutItem]>,
@@ -211,7 +29,8 @@ public struct FileCollectionView: NSViewRepresentable {
         itemSpacing: Binding<CGFloat>,
         columns: Binding<Int> = .constant(5),
         targetSize: Binding<CGFloat> = .constant(200),
-        folderURL: URL? = nil
+        folderURL: URL? = nil,
+        actionHandler: ItemActionHandler? = nil
     ) {
         _layoutItems = layoutItems
         _selection = selection
@@ -221,6 +40,7 @@ public struct FileCollectionView: NSViewRepresentable {
         _columns = columns
         _targetSize = targetSize
         self.folderURL = folderURL
+        self.actionHandler = actionHandler
     }
 
     public func makeNSView(context: Context) -> NSScrollView {
@@ -232,6 +52,9 @@ public struct FileCollectionView: NSViewRepresentable {
         collectionView.allowsMultipleSelection = true
         collectionView.dataSource = context.coordinator
         collectionView.delegate = context.coordinator
+        collectionView.quickLookCoordinator = context.coordinator
+        context.coordinator.actionHandler = actionHandler
+        collectionView.actionHandler = actionHandler
 
         collectionView.registerProgrammatic(
             ThumbnailItem.self,
@@ -271,6 +94,7 @@ public struct FileCollectionView: NSViewRepresentable {
         let folderChanged = coordinator.currentFolderURL != folderURL
 
         coordinator.parent = self
+        coordinator.actionHandler = actionHandler
 
         // Save scroll position for the current folder before switching
         if itemsChanged, let url = coordinator.currentFolderURL {
@@ -344,7 +168,7 @@ public struct FileCollectionView: NSViewRepresentable {
         let insets = NSEdgeInsets(top: 20, left: 20, bottom: 20, right: 20)
 
         switch mode {
-        case .verticalFlow:
+        case .verticalFlow, .list:
             let layout = VerticalFlowLayout()
             layout.sectionInset = insets
             layout.items = items
@@ -382,28 +206,11 @@ public struct FileCollectionView: NSViewRepresentable {
             layout.spacing = 4
             layout.targetColumnWidth = targetSize
             return layout
-
-        case .list:
-            let layout = VerticalFlowLayout()
-            layout.sectionInset = insets
-            layout.items = items
-            layout.spacingPercentage = spacing
-            return layout
         }
     }
 
     private func updateLayoutItems(_ layout: NSCollectionViewLayout?, items: [DynamicLayoutItem]) {
-        if let layout = layout as? VerticalFlowLayout {
-            layout.items = items
-        } else if let layout = layout as? WaterfallLayout {
-            layout.items = items
-        } else if let layout = layout as? HorizontalFlowLayout {
-            layout.items = items
-        } else if let layout = layout as? JustifiedLayout {
-            layout.items = items
-        } else if let layout = layout as? HorizontalJustifiedLayout {
-            layout.items = items
-        }
+        (layout as? LayoutItemsProvider)?.setItems(items)
     }
 
     private func updateLayoutProperties(_ layout: NSCollectionViewLayout?, spacing: CGFloat, columns: Int, targetSize: CGFloat = 200) {
@@ -432,6 +239,7 @@ public class Coordinator: NSObject, NSCollectionViewDataSource, NSCollectionView
     var lastSpacing: CGFloat = -1
     var lastColumns: Int = -1
     var lastTargetSize: CGFloat?
+    var actionHandler: ItemActionHandler?
     var draggedIndexPaths: Set<IndexPath> = []
     var isDragging = false
     var isProcessingDrop = false
@@ -469,9 +277,42 @@ public class Coordinator: NSObject, NSCollectionViewDataSource, NSCollectionView
 
     public func collectionView(_: NSCollectionView, didSelectItemsAt indexPaths: Set<IndexPath>) {
         parent.selection.formUnion(indexPaths)
+        QuickLookHelpers.reloadPanelIfVisible()
     }
 
     public func collectionView(_: NSCollectionView, didDeselectItemsAt indexPaths: Set<IndexPath>) {
         parent.selection.subtract(indexPaths)
+        QuickLookHelpers.reloadPanelIfVisible()
+    }
+
+    // MARK: - Quick Look Helpers
+
+    var selectedURLs: [URL] {
+        parent.selection
+            .sorted { $0.item < $1.item }
+            .compactMap { idx in
+                idx.item < parent.layoutItems.count ? parent.layoutItems[idx.item].url : nil
+            }
+    }
+}
+
+// MARK: - Quick Look DataSource & Delegate
+
+extension Coordinator: QLPreviewPanelDataSource, QLPreviewPanelDelegate {
+    public func numberOfPreviewItems(in _: QLPreviewPanel!) -> Int {
+        selectedURLs.count
+    }
+
+    public func previewPanel(_: QLPreviewPanel!, previewItemAt index: Int) -> (any QLPreviewItem)! {
+        let urls = selectedURLs
+        guard index < urls.count else { return nil }
+        return urls[index] as NSURL
+    }
+
+    public func previewPanel(_: QLPreviewPanel!, handle event: NSEvent!) -> Bool {
+        if event.type == .keyDown, event.characters == " " {
+            return true
+        }
+        return false
     }
 }

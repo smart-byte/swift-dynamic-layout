@@ -13,6 +13,7 @@ public struct MoodboardCanvasView: NSViewRepresentable {
     let items: [MoodboardCanvasItemData]
     let onItemMoved: ((UUID, CGPoint) -> Void)?
     let onItemRotated: ((UUID, CGFloat) -> Void)?
+    let onItemResized: ((UUID, CGSize) -> Void)?
     let onItemReordered: ((UUID, MoodboardCanvasAction) -> Void)?
     let onItemRemoved: ((UUID) -> Void)?
     let onExternalDrop: (([URL], CGPoint) -> Void)?
@@ -21,6 +22,7 @@ public struct MoodboardCanvasView: NSViewRepresentable {
         items: [MoodboardCanvasItemData],
         onItemMoved: ((UUID, CGPoint) -> Void)? = nil,
         onItemRotated: ((UUID, CGFloat) -> Void)? = nil,
+        onItemResized: ((UUID, CGSize) -> Void)? = nil,
         onItemReordered: ((UUID, MoodboardCanvasAction) -> Void)? = nil,
         onItemRemoved: ((UUID) -> Void)? = nil,
         onExternalDrop: (([URL], CGPoint) -> Void)? = nil
@@ -28,6 +30,7 @@ public struct MoodboardCanvasView: NSViewRepresentable {
         self.items = items
         self.onItemMoved = onItemMoved
         self.onItemRotated = onItemRotated
+        self.onItemResized = onItemResized
         self.onItemReordered = onItemReordered
         self.onItemRemoved = onItemRemoved
         self.onExternalDrop = onExternalDrop
@@ -153,6 +156,10 @@ public class MoodboardCanvasCoordinator: NSObject {
 
     func itemRotated(_ id: UUID, by angle: CGFloat) {
         parent.onItemRotated?(id, angle)
+    }
+
+    func itemResized(_ id: UUID, to size: CGSize) {
+        parent.onItemResized?(id, size)
     }
 
     func itemReordered(_ id: UUID, action: MoodboardCanvasAction) {

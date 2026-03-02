@@ -9,12 +9,12 @@ import AppKit
 
 /// Google-Photos-style justified layout where items fill the row width
 /// with each row having a dynamic height based on scaling.
-public class JustifiedLayout: NSCollectionViewLayout {
+public class JustifiedLayout: NSCollectionViewLayout, LayoutItemsProvider {
     private var cache = [NSCollectionViewLayoutAttributes]()
     private var oldCache: [IndexPath: NSCollectionViewLayoutAttributes] = [:]
     private var contentHeight: CGFloat = 0
 
-    var items: [DynamicLayoutItem] = []
+    public var items: [DynamicLayoutItem] = []
 
     public var targetRowHeight: CGFloat = 200
     public var spacing: CGFloat = 4
@@ -111,9 +111,7 @@ public class JustifiedLayout: NSCollectionViewLayout {
     }
 
     override public func layoutAttributesForItem(at indexPath: IndexPath) -> NSCollectionViewLayoutAttributes? {
-        guard indexPath.item < cache.count else {
-            return NSCollectionViewLayoutAttributes()
-        }
+        guard indexPath.item < cache.count else { return nil }
         // Attributes are stored in insertion order, not index order
         return cache.first { $0.indexPath == indexPath }
     }

@@ -9,11 +9,11 @@ import AppKit
 
 /// Single-column vertical flow — each item spans the full available width,
 /// height is determined by aspect ratio. Like HorizontalFlowLayout but rotated 90°.
-public class VerticalFlowLayout: NSCollectionViewLayout {
+public class VerticalFlowLayout: NSCollectionViewLayout, LayoutItemsProvider {
     public var spacingPercentage: CGFloat = 0.02
     public var sectionInset: NSEdgeInsets = .init(top: 20, left: 20, bottom: 20, right: 20)
 
-    var items: [DynamicLayoutItem] = []
+    public var items: [DynamicLayoutItem] = []
 
     private var cache = [NSCollectionViewLayoutAttributes]()
     private var oldCache: [IndexPath: NSCollectionViewLayoutAttributes] = [:]

@@ -10,12 +10,12 @@ import AppKit
 /// Justified layout rotated 90° — items flow top-to-bottom into columns,
 /// each column is scaled to fill the available height exactly.
 /// Horizontal scrolling. Like JustifiedLayout but for columns instead of rows.
-public class HorizontalJustifiedLayout: NSCollectionViewFlowLayout {
+public class HorizontalJustifiedLayout: NSCollectionViewFlowLayout, LayoutItemsProvider {
     private var cache = [NSCollectionViewLayoutAttributes]()
     private var oldCache: [IndexPath: NSCollectionViewLayoutAttributes] = [:]
     private var contentWidth: CGFloat = 0
 
-    var items: [DynamicLayoutItem] = []
+    public var items: [DynamicLayoutItem] = []
 
     public var targetColumnWidth: CGFloat = 200
     public var spacing: CGFloat = 4
@@ -116,9 +116,7 @@ public class HorizontalJustifiedLayout: NSCollectionViewFlowLayout {
     }
 
     override public func layoutAttributesForItem(at indexPath: IndexPath) -> NSCollectionViewLayoutAttributes? {
-        guard indexPath.item < cache.count else {
-            return NSCollectionViewLayoutAttributes()
-        }
+        guard indexPath.item < cache.count else { return nil }
         return cache.first { $0.indexPath == indexPath }
     }
 

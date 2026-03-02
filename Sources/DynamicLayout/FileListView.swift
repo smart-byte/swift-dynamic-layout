@@ -6,6 +6,7 @@
 //
 
 import ImageTools
+import Quartz
 import SwiftUI
 
 /// Finder-style table view wrapping NSTableView.
@@ -13,13 +14,16 @@ import SwiftUI
 public struct FileListView: NSViewRepresentable {
     @Binding var layoutItems: [DynamicLayoutItem]
     @Binding var selection: Set<IndexPath>
+    var actionHandler: ItemActionHandler?
 
     public init(
         layoutItems: Binding<[DynamicLayoutItem]>,
-        selection: Binding<Set<IndexPath>> = .constant([])
+        selection: Binding<Set<IndexPath>> = .constant([]),
+        actionHandler: ItemActionHandler? = nil
     ) {
         _layoutItems = layoutItems
         _selection = selection
+        self.actionHandler = actionHandler
     }
 
     public func makeNSView(context: Context) -> NSScrollView {
@@ -27,7 +31,10 @@ public struct FileListView: NSViewRepresentable {
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
 
-        let tableView = NSTableView()
+        let tableView = NiblessTableView()
+        tableView.quickLookCoordinator = context.coordinator
+        context.coordinator.actionHandler = actionHandler
+        tableView.actionHandler = actionHandler
         if #available(macOS 11.0, *) {
             tableView.style = .inset
         }
@@ -72,6 +79,10 @@ public struct FileListView: NSViewRepresentable {
         tableView.setDraggingSourceOperationMask(.every, forLocal: true)
         tableView.setDraggingSourceOperationMask([.copy, .delete], forLocal: false)
 
+        // Double-click → detail preview
+        tableView.doubleAction = #selector(ListCoordinator.handleDoubleClick(_:))
+        tableView.target = context.coordinator
+
         scrollView.documentView = tableView
         context.coordinator.tableView = tableView
 
@@ -81,6 +92,7 @@ public struct FileListView: NSViewRepresentable {
     public func updateNSView(_: NSScrollView, context: Context) {
         let coordinator = context.coordinator
         coordinator.parent = self
+        coordinator.actionHandler = actionHandler
 
         if coordinator.isDragging { return }
 
@@ -101,6 +113,7 @@ public struct FileListView: NSViewRepresentable {
 public class ListCoordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     var parent: FileListView
     weak var tableView: NSTableView?
+    var actionHandler: ItemActionHandler?
     var lastItemIDs: [UUID] = []
     var draggedRows: IndexSet = []
     var isDragging = false
@@ -221,6 +234,24 @@ public class ListCoordinator: NSObject, NSTableViewDataSource, NSTableViewDelega
         guard let tableView else { return }
         let selectedRows = tableView.selectedRowIndexes
         parent.selection = Set(selectedRows.map { IndexPath(item: $0, section: 0) })
+        QuickLookHelpers.reloadPanelIfVisible()
+    }
+
+    // MARK: - Quick Look Helpers
+
+    var selectedURLs: [URL] {
+        guard let tableView else { return [] }
+        return tableView.selectedRowIndexes.sorted().compactMap { row in
+            row < parent.layoutItems.count ? parent.layoutItems[row].url : nil
+        }
+    }
+
+    // MARK: - Double-Click
+
+    @objc func handleDoubleClick(_: Any?) {
+        let urls = selectedURLs
+        guard !urls.isEmpty else { return }
+        (tableView as? NiblessTableView)?.actionHandler?.didRequestDetailPreview(for: urls)
     }
 
     // MARK: - Drag
