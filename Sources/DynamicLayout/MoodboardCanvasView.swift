@@ -16,7 +16,7 @@ public struct MoodboardCanvasView: NSViewRepresentable {
     let onItemResized: ((UUID, CGSize) -> Void)?
     let onItemReordered: ((UUID, MoodboardCanvasAction) -> Void)?
     let onItemRemoved: ((UUID) -> Void)?
-    let onExternalDrop: (([URL], CGPoint) -> Void)?
+    let onExternalDrop: (([URL], CGPoint, CGSize?) -> Void)?
 
     public init(
         items: [MoodboardCanvasItemData],
@@ -25,7 +25,7 @@ public struct MoodboardCanvasView: NSViewRepresentable {
         onItemResized: ((UUID, CGSize) -> Void)? = nil,
         onItemReordered: ((UUID, MoodboardCanvasAction) -> Void)? = nil,
         onItemRemoved: ((UUID) -> Void)? = nil,
-        onExternalDrop: (([URL], CGPoint) -> Void)? = nil
+        onExternalDrop: (([URL], CGPoint, CGSize?) -> Void)? = nil
     ) {
         self.items = items
         self.onItemMoved = onItemMoved
@@ -51,8 +51,8 @@ public struct MoodboardCanvasView: NSViewRepresentable {
         scrollView.maxMagnification = 4.0
         scrollView.magnification = 1.0
 
-        // Register for drag & drop
-        scrollView.registerForDraggedTypes([.fileURL])
+        // Register for drag & drop on the canvas itself
+        canvas.registerForDraggedTypes([.fileURL])
 
         updateCanvas(canvas, with: items)
 
@@ -81,8 +81,10 @@ public struct MoodboardCanvasView: NSViewRepresentable {
         // Add or update items
         for data in items {
             if let existing = canvas.subviews.compactMap({ $0 as? MoodboardCanvasItem }).first(where: { $0.itemID == data.id }) {
-                existing.frame = NSRect(x: data.positionX, y: data.positionY, width: data.width, height: data.height)
-                existing.rotationAngle = data.rotation
+                existing.updateFrame(
+                    NSRect(x: data.positionX, y: data.positionY, width: data.width, height: data.height),
+                    rotation: data.rotation
+                )
                 existing.updateZIndex(Int(data.zIndex))
             } else {
                 let item = MoodboardCanvasItem(
@@ -170,7 +172,7 @@ public class MoodboardCanvasCoordinator: NSObject {
         parent.onItemRemoved?(id)
     }
 
-    func externalDrop(urls: [URL], at point: CGPoint) {
-        parent.onExternalDrop?(urls, point)
+    func externalDrop(urls: [URL], at point: CGPoint, imageSize: CGSize?) {
+        parent.onExternalDrop?(urls, point, imageSize)
     }
 }

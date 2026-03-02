@@ -10,7 +10,7 @@ import ImageTools
 
 /// Draggable canvas item with rotation, z-index, and context menu.
 /// Styled with shadow and border for a physical photo feel.
-/// Corner handles allow rotate+scale via mouse drag.
+/// Corner regions allow rotate+scale via mouse drag.
 public class MoodboardCanvasItem: NSView {
     let itemID: UUID
     let imageURL: URL
@@ -23,22 +23,16 @@ public class MoodboardCanvasItem: NSView {
     private var dragOrigin: NSPoint = .zero
     private var frameOrigin: NSPoint = .zero
 
-    // MARK: - Handle State
+    // MARK: - Drag State
 
     private enum DragMode {
         case move
-        case handleResize(corner: CornerHandle)
+        case handleResize
     }
 
-    private enum CornerHandle: CaseIterable {
-        case topLeft, topRight, bottomLeft, bottomRight
-    }
-
-    private static let handleSize: CGFloat = 12
+    private static let cornerHitRadius: CGFloat = 16
     private static let minItemSize: CGFloat = 40
 
-    private var handleViews: [CornerHandle: NSView] = [:]
-    private var handlesVisible = false
     private var dragMode: DragMode = .move
 
     // State captured at drag start for handle resize
@@ -46,8 +40,6 @@ public class MoodboardCanvasItem: NSView {
     private var initialRotation: CGFloat = 0
     private var initialDistance: CGFloat = 0
     private var initialAngle: CGFloat = 0
-
-    private var trackingArea: NSTrackingArea?
 
     init(itemID: UUID, imageURL: URL, frame: NSRect, rotation: CGFloat, zIndex: Int) {
         self.itemID = itemID
@@ -57,8 +49,6 @@ public class MoodboardCanvasItem: NSView {
         super.init(frame: frame)
         setupView()
         loadImage()
-        setupHandles()
-        setupTrackingArea()
     }
 
     @available(*, unavailable)
@@ -100,8 +90,27 @@ public class MoodboardCanvasItem: NSView {
     }
 
     private func applyRotation() {
-        layer?.anchorPoint = CGPoint(x: 0.5, y: 0.5)
-        layer?.transform = CATransform3DMakeRotation(rotationAngle, 0, 0, 1)
+        let cx = bounds.width / 2
+        let cy = bounds.height / 2
+        var t = CATransform3DIdentity
+        t = CATransform3DTranslate(t, cx, cy, 0)
+        t = CATransform3DRotate(t, rotationAngle, 0, 0, 1)
+        t = CATransform3DTranslate(t, -cx, -cy, 0)
+        layer?.transform = t
+    }
+
+    /// Snap angle to the nearest 45° increment.
+    private func snapAngle(_ angle: CGFloat) -> CGFloat {
+        let step = CGFloat.pi / 4
+        return (angle / step).rounded() * step
+    }
+
+    /// Update frame and rotation cleanly (clears transform, sets frame, re-applies).
+    func updateFrame(_ newFrame: NSRect, rotation: CGFloat) {
+        layer?.transform = CATransform3DIdentity
+        frame = newFrame
+        rotationAngle = rotation
+        applyRotation()
     }
 
     func updateZIndex(_ newIndex: Int) {
@@ -116,127 +125,88 @@ public class MoodboardCanvasItem: NSView {
         }
     }
 
-    // MARK: - Corner Handles
+    // MARK: - Hit Testing (rotation-aware via CALayer)
 
-    private func setupHandles() {
-        for corner in CornerHandle.allCases {
-            let handle = NSView(frame: .zero)
-            handle.wantsLayer = true
-            handle.layer?.backgroundColor = NSColor.controlAccentColor.cgColor
-            handle.layer?.cornerRadius = Self.handleSize / 2
-            handle.layer?.borderColor = NSColor.white.cgColor
-            handle.layer?.borderWidth = 1.5
-            handle.isHidden = true
-            addSubview(handle)
-            handleViews[corner] = handle
+    /// Convert a window-coordinate event to this view's local coordinate system,
+    /// correctly accounting for the active layer rotation transform.
+    private func localPointFromEvent(_ event: NSEvent) -> NSPoint {
+        guard let myLayer = layer, let superLayer = superview?.layer else {
+            return convert(event.locationInWindow, from: nil)
         }
-        layoutHandles()
+        let superPoint = superview?.convert(event.locationInWindow, from: nil) ?? event.locationInWindow
+        return myLayer.convert(superPoint, from: superLayer)
     }
 
-    private func layoutHandles() {
-        let s = Self.handleSize
-        let half = s / 2
+    /// Check if a local point is near any corner of the item bounds.
+    private func isNearCorner(_ point: NSPoint) -> Bool {
+        let r = Self.cornerHitRadius
         let w = bounds.width
         let h = bounds.height
-
-        handleViews[.topLeft]?.frame = NSRect(x: -half, y: -half, width: s, height: s)
-        handleViews[.topRight]?.frame = NSRect(x: w - half, y: -half, width: s, height: s)
-        handleViews[.bottomLeft]?.frame = NSRect(x: -half, y: h - half, width: s, height: s)
-        handleViews[.bottomRight]?.frame = NSRect(x: w - half, y: h - half, width: s, height: s)
-    }
-
-    override public func layout() {
-        super.layout()
-        layoutHandles()
-    }
-
-    private func setHandlesVisible(_ visible: Bool) {
-        guard handlesVisible != visible else { return }
-        handlesVisible = visible
-        for (_, handle) in handleViews {
-            handle.isHidden = !visible
+        let corners: [NSPoint] = [
+            NSPoint(x: 0, y: 0),
+            NSPoint(x: w, y: 0),
+            NSPoint(x: 0, y: h),
+            NSPoint(x: w, y: h),
+        ]
+        return corners.contains { corner in
+            hypot(point.x - corner.x, point.y - corner.y) <= r
         }
     }
 
-    // MARK: - Tracking Area (Hover)
-
-    private func setupTrackingArea() {
-        let area = NSTrackingArea(
-            rect: bounds,
-            options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
-            owner: self,
-            userInfo: nil
-        )
-        addTrackingArea(area)
-        trackingArea = area
-    }
-
-    override public func mouseEntered(with _: NSEvent) {
-        setHandlesVisible(true)
-    }
-
-    override public func mouseExited(with _: NSEvent) {
-        setHandlesVisible(false)
-    }
-
-    // MARK: - Hit Testing for Handles
-
-    private func hitHandle(at point: NSPoint) -> CornerHandle? {
-        let hitRadius = Self.handleSize + 4 // slightly larger hit area
-        for corner in CornerHandle.allCases {
-            guard let handleView = handleViews[corner] else { continue }
-            let center = NSPoint(
-                x: handleView.frame.midX,
-                y: handleView.frame.midY
-            )
-            let dx = point.x - center.x
-            let dy = point.y - center.y
-            if sqrt(dx * dx + dy * dy) <= hitRadius {
-                return corner
-            }
+    /// Hit-test accounting for rotation so clicks land on the actual visual rect.
+    override public func hitTest(_ point: NSPoint) -> NSView? {
+        guard let myLayer = layer, let superLayer = superview?.layer else {
+            return super.hitTest(point)
         }
-        return nil
-    }
-
-    private var itemCenter: NSPoint {
-        NSPoint(x: bounds.width / 2, y: bounds.height / 2)
+        let localPoint = myLayer.convert(point, from: superLayer)
+        let padding = Self.cornerHitRadius
+        let hitRect = bounds.insetBy(dx: -padding, dy: -padding)
+        return hitRect.contains(localPoint) ? self : nil
     }
 
     // MARK: - Mouse Events
 
     override public func mouseDown(with event: NSEvent) {
-        let localPoint = convert(event.locationInWindow, from: nil)
+        let localPt = localPointFromEvent(event)
 
-        if let corner = hitHandle(at: localPoint) {
-            dragMode = .handleResize(corner: corner)
-            initialFrame = frame
+        if isNearCorner(localPt) {
+            dragMode = .handleResize
             initialRotation = rotationAngle
+
+            // Read frame without rotation transform for stable reference
+            layer?.transform = CATransform3DIdentity
+            initialFrame = frame
+            applyRotation()
 
             // Compute initial vector from frame center to mouse (in superview coordinates)
             let superPoint = superview?.convert(event.locationInWindow, from: nil) ?? event.locationInWindow
-            let center = NSPoint(x: frame.midX, y: frame.midY)
+            let center = NSPoint(x: initialFrame.midX, y: initialFrame.midY)
             let dx = superPoint.x - center.x
             let dy = superPoint.y - center.y
             initialDistance = sqrt(dx * dx + dy * dy)
             initialAngle = atan2(dy, dx)
         } else {
             dragMode = .move
-            dragOrigin = event.locationInWindow
+            dragOrigin = superview?.convert(event.locationInWindow, from: nil) ?? event.locationInWindow
+            layer?.transform = CATransform3DIdentity
             frameOrigin = frame.origin
+            applyRotation()
         }
     }
 
     override public func mouseDragged(with event: NSEvent) {
         switch dragMode {
         case .move:
-            let current = event.locationInWindow
+            let current = superview?.convert(event.locationInWindow, from: nil) ?? event.locationInWindow
             let dx = current.x - dragOrigin.x
             let dy = current.y - dragOrigin.y
+            layer?.transform = CATransform3DIdentity
             setFrameOrigin(NSPoint(x: frameOrigin.x + dx, y: frameOrigin.y + dy))
+            applyRotation()
 
         case .handleResize:
             let superPoint = superview?.convert(event.locationInWindow, from: nil) ?? event.locationInWindow
-            let center = NSPoint(x: frame.midX, y: frame.midY)
+            let center = NSPoint(x: initialFrame.midX, y: initialFrame.midY)
             let dx = superPoint.x - center.x
             let dy = superPoint.y - center.y
             let currentDistance = sqrt(dx * dx + dy * dy)
@@ -255,67 +225,44 @@ public class MoodboardCanvasItem: NSView {
             // Rotation: angle delta
             let angleDelta = currentAngle - initialAngle
             rotationAngle = initialRotation + angleDelta
-            applyRotation()
+            if event.modifierFlags.contains(.shift) {
+                rotationAngle = snapAngle(rotationAngle)
+            }
 
-            // Resize centered: keep center stable
+            // Clear transform before frame changes
+            layer?.transform = CATransform3DIdentity
             let newX = center.x - newWidth / 2
             let newY = center.y - newHeight / 2
             setFrameSize(NSSize(width: newWidth, height: newHeight))
             setFrameOrigin(NSPoint(x: newX, y: newY))
-            layoutHandles()
+            applyRotation()
         }
     }
 
     override public func mouseUp(with _: NSEvent) {
+        layer?.transform = CATransform3DIdentity
+        let cleanOrigin = frame.origin
+        let cleanSize = frame.size
+        applyRotation()
+
         switch dragMode {
         case .move:
-            canvas?.coordinator?.itemMoved(itemID, to: frame.origin)
+            canvas?.coordinator?.itemMoved(itemID, to: cleanOrigin)
         case .handleResize:
-            canvas?.coordinator?.itemMoved(itemID, to: frame.origin)
+            canvas?.coordinator?.itemMoved(itemID, to: cleanOrigin)
             canvas?.coordinator?.itemRotated(itemID, by: rotationAngle)
-            canvas?.coordinator?.itemResized(itemID, to: frame.size)
+            canvas?.coordinator?.itemResized(itemID, to: cleanSize)
         }
     }
 
     // MARK: - Rotation via Trackpad
 
     override public func rotate(with event: NSEvent) {
-        rotationAngle += CGFloat(event.rotation) * (.pi / 180)
+        rotationAngle -= CGFloat(event.rotation) * (.pi / 180)
+        if event.modifierFlags.contains(.shift) {
+            rotationAngle = snapAngle(rotationAngle)
+        }
         applyRotation()
         canvas?.coordinator?.itemRotated(itemID, by: rotationAngle)
-    }
-
-    // MARK: - Context Menu
-
-    private func buildContextMenu() -> NSMenu {
-        let menu = NSMenu()
-
-        let bringToFront = NSMenuItem(title: "Bring to Front", action: #selector(bringToFrontAction), keyEquivalent: "")
-        bringToFront.target = self
-        menu.addItem(bringToFront)
-
-        let sendToBack = NSMenuItem(title: "Send to Back", action: #selector(sendToBackAction), keyEquivalent: "")
-        sendToBack.target = self
-        menu.addItem(sendToBack)
-
-        menu.addItem(NSMenuItem.separator())
-
-        let remove = NSMenuItem(title: "Remove", action: #selector(removeAction), keyEquivalent: "")
-        remove.target = self
-        menu.addItem(remove)
-
-        return menu
-    }
-
-    @objc private func bringToFrontAction() {
-        canvas?.coordinator?.itemReordered(itemID, action: .bringToFront)
-    }
-
-    @objc private func sendToBackAction() {
-        canvas?.coordinator?.itemReordered(itemID, action: .sendToBack)
-    }
-
-    @objc private func removeAction() {
-        canvas?.coordinator?.itemRemoved(itemID)
     }
 }

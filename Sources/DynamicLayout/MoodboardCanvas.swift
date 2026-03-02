@@ -79,7 +79,8 @@ public class MoodboardCanvas: NSView {
         }
 
         let dropPoint = convert(sender.draggingLocation, from: nil)
-        coordinator?.externalDrop(urls: urls, at: dropPoint)
+        let imageSize = sender.draggedImage?.size
+        coordinator?.externalDrop(urls: urls, at: dropPoint, imageSize: imageSize)
         return true
     }
 }
