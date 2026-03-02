@@ -11,6 +11,7 @@ import AppKit
 /// with each row having a dynamic height based on scaling.
 public class JustifiedLayout: NSCollectionViewLayout {
     private var cache = [NSCollectionViewLayoutAttributes]()
+    private var oldCache: [IndexPath: NSCollectionViewLayoutAttributes] = [:]
     private var contentHeight: CGFloat = 0
 
     var items: [DynamicLayoutItem] = []
@@ -120,5 +121,103 @@ public class JustifiedLayout: NSCollectionViewLayout {
     override public func shouldInvalidateLayout(forBoundsChange newBounds: NSRect) -> Bool {
         let oldBounds = collectionView?.bounds ?? .zero
         return newBounds.width != oldBounds.width
+    }
+
+    override public func invalidationContext(
+        forBoundsChange newBounds: NSRect
+    ) -> NSCollectionViewLayoutInvalidationContext {
+        let context = super.invalidationContext(forBoundsChange: newBounds)
+        guard let cv = collectionView else { return context }
+
+        let oldW = cv.bounds.width - sectionInset.left - sectionInset.right
+        let newW = newBounds.width - sectionInset.left - sectionInset.right
+        guard oldW > 0, newW > 0 else { return context }
+
+        let oldY = cv.enclosingScrollView?.documentVisibleRect.origin.y ?? 0
+        let scale = newW / oldW
+
+        if collectionViewContentSize.height * scale <= newBounds.height {
+            context.contentOffsetAdjustment = NSPoint(x: 0, y: -oldY)
+        } else {
+            context.contentOffsetAdjustment = NSPoint(x: 0, y: oldY * (scale - 1))
+        }
+        return context
+    }
+
+    // MARK: - Batch Update Animation Support
+
+    override public func prepare(forCollectionViewUpdates updateItems: [NSCollectionViewUpdateItem]) {
+        super.prepare(forCollectionViewUpdates: updateItems)
+        oldCache = Dictionary(
+            uniqueKeysWithValues: cache.compactMap { attr -> (IndexPath, NSCollectionViewLayoutAttributes)? in
+                guard let ip = attr.indexPath else { return nil }
+                // swiftlint:disable:next force_cast
+                return (ip, attr.copy() as! NSCollectionViewLayoutAttributes)
+            }
+        )
+    }
+
+    override public func finalizeCollectionViewUpdates() {
+        super.finalizeCollectionViewUpdates()
+        oldCache = [:]
+    }
+
+    override public func initialLayoutAttributesForAppearingItem(
+        at itemIndexPath: IndexPath
+    ) -> NSCollectionViewLayoutAttributes? {
+        layoutAttributesForItem(at: itemIndexPath)
+    }
+
+    override public func finalLayoutAttributesForDisappearingItem(
+        at itemIndexPath: IndexPath
+    ) -> NSCollectionViewLayoutAttributes? {
+        oldCache[itemIndexPath] ?? layoutAttributesForItem(at: itemIndexPath)
+    }
+
+    // MARK: - Drop Target Support
+
+    /// Find the correct insertion index. Row-aware: finds the row, then X position within it.
+    public func dropIndex(at point: CGPoint) -> Int {
+        guard !cache.isEmpty else { return 0 }
+
+        let rowItems = itemsInRow(nearY: point.y)
+        guard !rowItems.isEmpty else { return items.count }
+
+        let sorted = rowItems.sorted { $0.frame.origin.x < $1.frame.origin.x }
+        for attr in sorted {
+            guard let ip = attr.indexPath else { continue }
+            if point.x < attr.frame.midX { return ip.item }
+        }
+        return (sorted.last?.indexPath?.item ?? items.count - 1) + 1
+    }
+
+    /// Indicator frame for a given insertion index.
+    public func indicatorFrame(forInsertionAt index: Int) -> CGRect {
+        if index < cache.count {
+            let itemAttrs = cache.first { $0.indexPath?.item == index }
+            guard let f = itemAttrs?.frame else { return .zero }
+            return CGRect(x: f.origin.x - spacing / 2 - 1.5, y: f.origin.y, width: 3, height: f.height)
+        } else if let last = cache.last {
+            return CGRect(x: last.frame.maxX + spacing / 2 - 1.5, y: last.frame.origin.y, width: 3, height: last.frame.height)
+        }
+        return .zero
+    }
+
+    private func itemsInRow(nearY y: CGFloat) -> [NSCollectionViewLayoutAttributes] {
+        let groups = Dictionary(grouping: cache) { Int($0.frame.origin.y.rounded()) }
+
+        var best: [NSCollectionViewLayoutAttributes] = []
+        var bestDist = CGFloat.infinity
+
+        for (_, attrs) in groups {
+            guard let first = attrs.first else { continue }
+            if y >= first.frame.minY, y <= first.frame.maxY { return attrs }
+            let dist = min(abs(y - first.frame.minY), abs(y - first.frame.maxY))
+            if dist < bestDist {
+                bestDist = dist
+                best = attrs
+            }
+        }
+        return best
     }
 }

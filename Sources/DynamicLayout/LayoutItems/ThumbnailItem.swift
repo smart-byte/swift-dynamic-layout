@@ -15,6 +15,7 @@ public class ThumbnailItem: NSCollectionViewItem {
     private var borderImageView: BorderImageView?
     private var plainImageView: NSImageView?
     private var currentURL: URL?
+    private var pendingImage: NSImage?
 
     override init(nibName _: NSNib.Name?, bundle _: Bundle?) {
         super.init(nibName: nil, bundle: nil)
@@ -41,8 +42,11 @@ public class ThumbnailItem: NSCollectionViewItem {
     }
 
     override public func apply(_ layoutAttributes: NSCollectionViewLayoutAttributes) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
         super.apply(layoutAttributes)
         view.layer?.transform = CATransform3DIdentity
+        CATransaction.commit()
     }
 
     // MARK: - View Setup (style-dependent)
@@ -52,6 +56,18 @@ public class ThumbnailItem: NSCollectionViewItem {
         view.wantsLayer = true
         view.layer?.masksToBounds = true
         view.autoresizesSubviews = true
+
+        // Disable implicit layer animations to prevent fade during drag operations
+        view.layer?.actions = [
+            "opacity": NSNull(),
+            "hidden": NSNull(),
+            "onOrderIn": NSNull(),
+            "onOrderOut": NSNull(),
+            "position": NSNull(),
+            "bounds": NSNull(),
+            "contents": NSNull(),
+            "sublayers": NSNull(),
+        ]
 
         switch itemStyle {
         case .photoFrame:
@@ -123,8 +139,27 @@ public class ThumbnailItem: NSCollectionViewItem {
 
     // MARK: - Configure
 
+    override public func viewDidLoad() {
+        super.viewDidLoad()
+        if let pendingImage {
+            setImage(pendingImage)
+            self.pendingImage = nil
+        }
+    }
+
     public func configure(with url: URL) {
         currentURL = url
+
+        // Synchronous cache hit → store for viewDidLoad (view may not exist yet)
+        if let cached = ImageCache.shared.cachedImage(for: url, maxDimension: 512) {
+            if isViewLoaded {
+                setImage(cached)
+            } else {
+                pendingImage = cached
+            }
+            return
+        }
+
         ImageCache.shared.image(for: url, maxDimension: 512) { [weak self] img in
             DispatchQueue.main.async {
                 guard let self, self.currentURL == url else { return }

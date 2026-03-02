@@ -1,23 +1,23 @@
 //
-//  WaterfallLayout.swift
+//  VerticalFlowLayout.swift
 //
 //
-//  Created by Mario Heubach on 08.05.24.
+//  Created by Mario Heubach on 01.03.26.
 //
 
 import AppKit
 
-public class WaterfallLayout: NSCollectionViewLayout {
-    private var cache = [NSCollectionViewLayoutAttributes]()
-    private var oldCache: [IndexPath: NSCollectionViewLayoutAttributes] = [:]
-    private var contentHeight: CGFloat = 0
-    private var computedSpacing: CGFloat = 0
+/// Single-column vertical flow — each item spans the full available width,
+/// height is determined by aspect ratio. Like HorizontalFlowLayout but rotated 90°.
+public class VerticalFlowLayout: NSCollectionViewLayout {
+    public var spacingPercentage: CGFloat = 0.02
+    public var sectionInset: NSEdgeInsets = .init(top: 20, left: 20, bottom: 20, right: 20)
 
     var items: [DynamicLayoutItem] = []
 
-    public var columns: Int = 5
-    public var spacingPercentage: CGFloat = 0.05
-    public var sectionInset: NSEdgeInsets = .init(top: 20, left: 20, bottom: 20, right: 20)
+    private var cache = [NSCollectionViewLayoutAttributes]()
+    private var oldCache: [IndexPath: NSCollectionViewLayoutAttributes] = [:]
+    private var contentHeight: CGFloat = 0
 
     override public func prepare() {
         super.prepare()
@@ -27,42 +27,23 @@ public class WaterfallLayout: NSCollectionViewLayout {
 
         guard let collectionView else { return }
 
-        let width = collectionView.bounds.width - sectionInset.left - sectionInset.right
-        let initialColumnWidth = width / CGFloat(columns)
-        let spacing = initialColumnWidth * spacingPercentage
-        computedSpacing = spacing
-        let columnWidth = (width - CGFloat(columns - 1) * spacing) / CGFloat(columns)
+        let availableWidth = collectionView.bounds.width - sectionInset.left - sectionInset.right
+        let spacing = availableWidth * spacingPercentage
 
-        var xOffset: [CGFloat] = []
-        var currentXOffset = sectionInset.left
-        for i in 0 ..< columns {
-            xOffset.append(currentXOffset)
-            if i < columns - 1 {
-                currentXOffset += columnWidth + spacing
-            } else {
-                currentXOffset += columnWidth
-            }
-        }
-
-        var yOffset: [CGFloat] = Array(repeating: sectionInset.top, count: columns)
+        var yOffset: CGFloat = sectionInset.top
 
         for (index, item) in items.enumerated() {
-            let shortestColumn = yOffset.enumerated().min(by: { $0.element < $1.element })?.offset ?? 0
-
             let indexPath = IndexPath(item: index, section: 0)
-            let height = columnWidth / item.aspectRatio
-            let frame = CGRect(x: xOffset[shortestColumn], y: yOffset[shortestColumn], width: columnWidth, height: height)
-
             let attributes = NSCollectionViewLayoutAttributes(forItemWith: indexPath)
-            attributes.frame = frame
+            let itemHeight = availableWidth / item.aspectRatio
+
+            attributes.frame = CGRect(x: sectionInset.left, y: yOffset, width: availableWidth, height: itemHeight)
             cache.append(attributes)
 
-            yOffset[shortestColumn] += height + spacing
+            yOffset += itemHeight + spacing
         }
 
-        if let maxOffset = yOffset.max() {
-            contentHeight = maxOffset + sectionInset.bottom
-        }
+        contentHeight = yOffset - (items.isEmpty ? 0 : availableWidth * spacingPercentage) + sectionInset.bottom
     }
 
     override public var collectionViewContentSize: NSSize {
@@ -74,9 +55,7 @@ public class WaterfallLayout: NSCollectionViewLayout {
     }
 
     override public func layoutAttributesForItem(at indexPath: IndexPath) -> NSCollectionViewLayoutAttributes? {
-        if indexPath.item >= cache.count {
-            return NSCollectionViewLayoutAttributes()
-        }
+        guard indexPath.item < cache.count else { return nil }
         return cache[indexPath.item]
     }
 
@@ -138,27 +117,27 @@ public class WaterfallLayout: NSCollectionViewLayout {
 
     // MARK: - Drop Target Support
 
-    /// Find insertion index by nearest item.
+    /// Find the correct insertion index by Y position (single vertical column).
     public func dropIndex(at point: CGPoint) -> Int {
-        guard !cache.isEmpty else { return 0 }
-
-        let nearest = cache.min {
-            hypot(point.x - $0.frame.midX, point.y - $0.frame.midY) <
-                hypot(point.x - $1.frame.midX, point.y - $1.frame.midY)
+        for attr in cache {
+            guard let ip = attr.indexPath else { continue }
+            if point.y < attr.frame.midY { return ip.item }
         }
-        guard let nearest, let ip = nearest.indexPath else { return items.count }
-
-        return point.y > nearest.frame.midY ? ip.item + 1 : ip.item
+        return items.count
     }
 
     /// Indicator frame for a given insertion index.
     public func indicatorFrame(forInsertionAt index: Int) -> CGRect {
-        let gap = computedSpacing
+        guard let collectionView else { return .zero }
+        let availableWidth = collectionView.bounds.width - sectionInset.left - sectionInset.right
+        let spacing = availableWidth * spacingPercentage
+
         if index < cache.count {
-            let f = cache[index].frame
-            return CGRect(x: f.origin.x, y: f.origin.y - gap / 2 - 1.5, width: f.width, height: 3)
+            let y = cache[index].frame.origin.y - spacing / 2 - 1.5
+            return CGRect(x: sectionInset.left, y: y, width: availableWidth, height: 3)
         } else if let last = cache.last {
-            return CGRect(x: last.frame.origin.x, y: last.frame.maxY + gap / 2 - 1.5, width: last.frame.width, height: 3)
+            let y = last.frame.maxY + spacing / 2 - 1.5
+            return CGRect(x: sectionInset.left, y: y, width: availableWidth, height: 3)
         }
         return .zero
     }

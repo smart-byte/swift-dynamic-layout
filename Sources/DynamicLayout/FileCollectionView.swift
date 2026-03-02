@@ -38,30 +38,97 @@ public enum ItemStyle: String, CaseIterable, Hashable {
 /// it's a separate system (Phase 4).
 public enum LayoutMode: String, CaseIterable, Hashable {
     case list
+    case verticalFlow
     case waterfall
     case horizontalFlow
     case justified
+    case horizontalJustified
 
     public var name: String {
         switch self {
         case .list: "List"
+        case .verticalFlow: "Vertical Flow"
         case .waterfall: "Waterfall"
         case .horizontalFlow: "Horizontal Flow"
         case .justified: "Justified"
+        case .horizontalJustified: "Horizontal Justified"
         }
     }
 
     public var icon: String {
         switch self {
         case .list: "list.bullet.rectangle.fill"
+        case .verticalFlow: "rectangle.split.1x2.fill"
         case .waterfall: "rectangle.grid.3x2.fill"
         case .horizontalFlow: "rectangle.split.3x1.fill"
         case .justified: "square.grid.2x2.fill"
+        case .horizontalJustified: "rectangle.split.2x1.fill"
         }
     }
 }
 
-// MARK: - FileCollectionView (for waterfall, horizontalFlow, justified)
+// MARK: - NSCollectionView subclass (bypasses NIB lookup for SPM module classes)
+
+/// NSCollectionView tries to load a NIB when creating new items via class
+/// registration, even when the class overrides init(nibName:bundle:).
+/// This subclass intercepts `makeItem` to create items programmatically.
+class NiblessCollectionView: NSCollectionView {
+    private var programmaticClasses: [NSUserInterfaceItemIdentifier: NSCollectionViewItem.Type] = [:]
+
+    func registerProgrammatic(
+        _ itemClass: NSCollectionViewItem.Type,
+        forItemWithIdentifier identifier: NSUserInterfaceItemIdentifier
+    ) {
+        programmaticClasses[identifier] = itemClass
+    }
+
+    override func makeItem(
+        withIdentifier identifier: NSUserInterfaceItemIdentifier,
+        for _: IndexPath
+    ) -> NSCollectionViewItem {
+        if let itemClass = programmaticClasses[identifier] {
+            let item = itemClass.init(nibName: nil, bundle: nil)
+            item.identifier = identifier
+            return item
+        }
+        fatalError("Unknown item identifier: \(identifier.rawValue)")
+    }
+
+    // MARK: - Custom Drop Indicator
+
+    private lazy var dropIndicatorView: NSView = {
+        let v = NSView()
+        v.wantsLayer = true
+        v.layer?.backgroundColor = NSColor.controlAccentColor.cgColor
+        v.layer?.cornerRadius = 1.5
+        v.isHidden = true
+        addSubview(v)
+        return v
+    }()
+
+    func showDropIndicator(at frame: CGRect) {
+        dropIndicatorView.frame = frame
+        dropIndicatorView.isHidden = false
+    }
+
+    func hideDropIndicator() {
+        dropIndicatorView.isHidden = true
+    }
+
+    /// Hide the default gap indicator that NSCollectionView adds
+    /// for .before drop operations — we draw our own.
+    override func didAddSubview(_ subview: NSView) {
+        super.didAddSubview(subview)
+        let className = String(describing: type(of: subview))
+        if className.contains("Gap") || className.contains("Drop") {
+            if subview !== dropIndicatorView {
+                subview.isHidden = true
+            }
+        }
+    }
+}
+
+// MARK: - FileCollectionView (for verticalFlow, horizontalFlow, justified)
 
 public struct FileCollectionView: NSViewRepresentable {
     @Binding var layoutItems: [DynamicLayoutItem]
@@ -70,6 +137,7 @@ public struct FileCollectionView: NSViewRepresentable {
     @Binding var itemStyle: ItemStyle
     @Binding var itemSpacing: CGFloat
     @Binding var columns: Int
+    let folderURL: URL?
 
     public init(
         layoutItems: Binding<[DynamicLayoutItem]>,
@@ -77,7 +145,8 @@ public struct FileCollectionView: NSViewRepresentable {
         layoutMode: Binding<LayoutMode>,
         itemStyle: Binding<ItemStyle> = .constant(.photoFrame),
         itemSpacing: Binding<CGFloat>,
-        columns: Binding<Int> = .constant(5)
+        columns: Binding<Int> = .constant(5),
+        folderURL: URL? = nil
     ) {
         _layoutItems = layoutItems
         _selection = selection
@@ -85,19 +154,23 @@ public struct FileCollectionView: NSViewRepresentable {
         _itemStyle = itemStyle
         _itemSpacing = itemSpacing
         _columns = columns
+        self.folderURL = folderURL
     }
 
     public func makeNSView(context: Context) -> NSScrollView {
-        let collectionView = NSCollectionView()
+        let collectionView = NiblessCollectionView()
         collectionView.registerForDraggedTypes([.fileURL])
+        collectionView.setDraggingSourceOperationMask(.every, forLocal: true)
+        collectionView.setDraggingSourceOperationMask([.copy, .delete], forLocal: false)
         collectionView.isSelectable = true
         collectionView.allowsMultipleSelection = true
         collectionView.dataSource = context.coordinator
         collectionView.delegate = context.coordinator
 
-        // NOTE: Do NOT register classes with NSCollectionView.register(_:forItemWithIdentifier:)
-        // When items are in a separate SPM module, NSCollectionView tries to load a NIB from the
-        // main bundle and crashes. Items are created directly in the data source instead.
+        collectionView.registerProgrammatic(
+            ThumbnailItem.self,
+            forItemWithIdentifier: NSUserInterfaceItemIdentifier(rawValue: "ThumbnailItem")
+        )
 
         let layout = createLayout(for: layoutMode, items: layoutItems, spacing: itemSpacing, columns: columns)
         collectionView.collectionViewLayout = layout
@@ -116,13 +189,29 @@ public struct FileCollectionView: NSViewRepresentable {
         guard let collectionView = nsView.documentView as? NSCollectionView else { return }
 
         let coordinator = context.coordinator
+
+        // Skip collection view updates during active drag or drop processing
+        if coordinator.isDragging || coordinator.isProcessingDrop {
+            coordinator.parent = self
+            return
+        }
+
         let itemsChanged = coordinator.lastItemCount != layoutItems.count ||
             coordinator.lastItemIDs != layoutItems.map(\.id)
         let layoutChanged = coordinator.lastLayoutMode != layoutMode
         let spacingChanged = coordinator.lastSpacing != itemSpacing
         let columnsChanged = coordinator.lastColumns != columns
+        let folderChanged = coordinator.currentFolderURL != folderURL
 
         coordinator.parent = self
+
+        // Save scroll position for the current folder before switching
+        if itemsChanged, let url = coordinator.currentFolderURL {
+            let firstVisible = collectionView.indexPathsForVisibleItems()
+                .sorted { $0.item < $1.item }.first?.item ?? 0
+            Coordinator.scrollCache[url] = firstVisible
+        }
+        coordinator.currentFolderURL = folderURL
 
         if layoutChanged {
             let newLayout = createLayout(for: layoutMode, items: layoutItems, spacing: itemSpacing, columns: columns)
@@ -144,6 +233,17 @@ public struct FileCollectionView: NSViewRepresentable {
             coordinator.lastItemIDs = layoutItems.map(\.id)
             updateLayoutItems(collectionView.collectionViewLayout, items: layoutItems)
             collectionView.reloadData()
+
+            // Restore scroll position when returning to a folder
+            if folderChanged, let url = folderURL,
+               let savedIndex = Coordinator.scrollCache[url],
+               savedIndex > 0, savedIndex < layoutItems.count
+            {
+                DispatchQueue.main.async {
+                    let ip = IndexPath(item: savedIndex, section: 0)
+                    collectionView.scrollToItems(at: [ip], scrollPosition: [.top, .left])
+                }
+            }
         } else if spacingChanged || columnsChanged {
             updateLayoutProperties(collectionView.collectionViewLayout, spacing: itemSpacing, columns: columns)
             collectionView.collectionViewLayout?.invalidateLayout()
@@ -173,6 +273,13 @@ public struct FileCollectionView: NSViewRepresentable {
         let insets = NSEdgeInsets(top: 20, left: 20, bottom: 20, right: 20)
 
         switch mode {
+        case .verticalFlow:
+            let layout = VerticalFlowLayout()
+            layout.sectionInset = insets
+            layout.items = items
+            layout.spacingPercentage = spacing
+            return layout
+
         case .waterfall:
             let layout = WaterfallLayout()
             layout.sectionInset = insets
@@ -197,30 +304,41 @@ public struct FileCollectionView: NSViewRepresentable {
             layout.targetRowHeight = 200
             return layout
 
+        case .horizontalJustified:
+            let layout = HorizontalJustifiedLayout()
+            layout.items = items
+            layout.sectionInset = insets
+            layout.spacing = 4
+            layout.targetColumnWidth = 200
+            return layout
+
         case .list:
-            // List mode is handled by FileListView, not FileCollectionView.
-            // Return a simple fallback layout in case this is reached.
-            let layout = WaterfallLayout()
+            let layout = VerticalFlowLayout()
             layout.sectionInset = insets
             layout.items = items
-            layout.columns = columns
             layout.spacingPercentage = spacing
             return layout
         }
     }
 
     private func updateLayoutItems(_ layout: NSCollectionViewLayout?, items: [DynamicLayoutItem]) {
-        if let layout = layout as? WaterfallLayout {
+        if let layout = layout as? VerticalFlowLayout {
+            layout.items = items
+        } else if let layout = layout as? WaterfallLayout {
             layout.items = items
         } else if let layout = layout as? HorizontalFlowLayout {
             layout.items = items
         } else if let layout = layout as? JustifiedLayout {
             layout.items = items
+        } else if let layout = layout as? HorizontalJustifiedLayout {
+            layout.items = items
         }
     }
 
     private func updateLayoutProperties(_ layout: NSCollectionViewLayout?, spacing: CGFloat, columns: Int) {
-        if let layout = layout as? WaterfallLayout {
+        if let layout = layout as? VerticalFlowLayout {
+            layout.spacingPercentage = spacing
+        } else if let layout = layout as? WaterfallLayout {
             layout.spacingPercentage = spacing
             layout.columns = columns
         }
@@ -238,6 +356,14 @@ public class Coordinator: NSObject, NSCollectionViewDataSource, NSCollectionView
     var lastItemIDs: [UUID] = []
     var lastSpacing: CGFloat = -1
     var lastColumns: Int = -1
+    var draggedIndexPaths: Set<IndexPath> = []
+    var isDragging = false
+    var isProcessingDrop = false
+    var pendingDropIndex: Int?
+
+    // Scroll-position cache: folder URL → first visible item index
+    static var scrollCache: [URL: Int] = [:]
+    var currentFolderURL: URL?
 
     init(_ parent: FileCollectionView) {
         self.parent = parent
@@ -247,13 +373,16 @@ public class Coordinator: NSObject, NSCollectionViewDataSource, NSCollectionView
         parent.layoutItems.count
     }
 
-    public func collectionView(_: NSCollectionView, itemForRepresentedObjectAt indexPath: IndexPath) -> NSCollectionViewItem {
+    public func collectionView(_ collectionView: NSCollectionView, itemForRepresentedObjectAt indexPath: IndexPath) -> NSCollectionViewItem {
+        let identifier = NSUserInterfaceItemIdentifier(rawValue: "ThumbnailItem")
+
         guard indexPath.item < parent.layoutItems.count else {
-            return ThumbnailItem(nibName: nil, bundle: nil)
+            return collectionView.makeItem(withIdentifier: identifier, for: indexPath)
         }
 
         let layoutItem = parent.layoutItems[indexPath.item]
-        let item = ThumbnailItem(nibName: nil, bundle: nil)
+        // swiftlint:disable:next force_cast
+        let item = collectionView.makeItem(withIdentifier: identifier, for: indexPath) as! ThumbnailItem
         item.itemStyle = parent.itemStyle
         item.configure(with: layoutItem.url)
         return item
@@ -265,82 +394,5 @@ public class Coordinator: NSObject, NSCollectionViewDataSource, NSCollectionView
 
     public func collectionView(_: NSCollectionView, didDeselectItemsAt indexPaths: Set<IndexPath>) {
         parent.selection.subtract(indexPaths)
-    }
-
-    // MARK: - Drag & Drop
-
-    public func collectionView(_: NSCollectionView, canDragItemsAt _: Set<IndexPath>, with _: NSEvent) -> Bool {
-        true
-    }
-
-    public func collectionView(_: NSCollectionView, pasteboardWriterForItemAt indexPath: IndexPath) -> NSPasteboardWriting? {
-        guard indexPath.item < parent.layoutItems.count else { return nil }
-        let url = parent.layoutItems[indexPath.item].url
-
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            return nil
-        }
-
-        let pasteboardItem = NSPasteboardItem()
-        pasteboardItem.setString(url.absoluteString, forType: .fileURL)
-        pasteboardItem.setString(url.lastPathComponent, forType: .string)
-        return pasteboardItem
-    }
-
-    public func collectionView(_: NSCollectionView, draggingSession session: NSDraggingSession, willBeginAt _: NSPoint, forItemsAt indexPaths: Set<IndexPath>) {
-        let urls = indexPaths.compactMap { indexPath -> URL? in
-            guard indexPath.item < parent.layoutItems.count else { return nil }
-            return parent.layoutItems[indexPath.item].url
-        }
-        session.draggingPasteboard.writeObjects(urls as [NSPasteboardWriting])
-        session.draggingFormation = .default
-        session.animatesToStartingPositionsOnCancelOrFail = true
-    }
-
-    // swiftlint:disable:next line_length
-    public func collectionView(_ collectionView: NSCollectionView, validateDrop info: NSDraggingInfo, proposedIndexPath _: AutoreleasingUnsafeMutablePointer<NSIndexPath>, dropOperation proposedDropOperation: UnsafeMutablePointer<NSCollectionView.DropOperation>) -> NSDragOperation {
-        proposedDropOperation.pointee = .on
-
-        if NSApp.currentEvent?.modifierFlags.contains(.option) ?? false {
-            return .copy
-        } else if info.draggingSource as? NSCollectionView == collectionView {
-            return .move
-        } else {
-            return .generic
-        }
-    }
-
-    // swiftlint:disable:next line_length
-    public func collectionView(_: NSCollectionView, acceptDrop draggingInfo: NSDraggingInfo, index: Int, dropOperation _: NSCollectionView.DropOperation) -> Bool {
-        let pasteboard = draggingInfo.draggingPasteboard
-
-        guard let itemIndexUrl = pasteboard.data(forType: .fileURL),
-              let itemUrl = URL(dataRepresentation: itemIndexUrl, relativeTo: nil)
-        else {
-            return false
-        }
-
-        guard let itemIndex = parent.layoutItems.firstIndex(where: { $0.url == itemUrl }) else {
-            let targetIndex = min(index, parent.layoutItems.count)
-            parent.layoutItems.insert(
-                DynamicLayoutItem(url: itemUrl, size: CGSize(width: 100, height: 100)),
-                at: targetIndex
-            )
-            return true
-        }
-
-        let item = parent.layoutItems.remove(at: itemIndex)
-        let targetIndex = min(index, parent.layoutItems.count)
-        parent.layoutItems.insert(item, at: targetIndex)
-
-        return true
-    }
-}
-
-extension Coordinator: NSPasteboardItemDataProvider {
-    public func pasteboard(_ pasteboard: NSPasteboard?, item: NSPasteboardItem, provideDataForType type: NSPasteboard.PasteboardType) {
-        if type == .fileURL, let url = item.string(forType: .fileURL) {
-            pasteboard?.setString(url, forType: .fileURL)
-        }
     }
 }

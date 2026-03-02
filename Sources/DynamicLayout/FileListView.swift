@@ -67,9 +67,10 @@ public struct FileListView: NSViewRepresentable {
         tableView.dataSource = context.coordinator
         tableView.delegate = context.coordinator
 
-        // Enable drag
+        // Enable drag & drop reordering
         tableView.registerForDraggedTypes([.fileURL])
-        tableView.setDraggingSourceOperationMask(.copy, forLocal: false)
+        tableView.setDraggingSourceOperationMask(.every, forLocal: true)
+        tableView.setDraggingSourceOperationMask([.copy, .delete], forLocal: false)
 
         scrollView.documentView = tableView
         context.coordinator.tableView = tableView
@@ -80,6 +81,8 @@ public struct FileListView: NSViewRepresentable {
     public func updateNSView(_: NSScrollView, context: Context) {
         let coordinator = context.coordinator
         coordinator.parent = self
+
+        if coordinator.isDragging { return }
 
         let itemsChanged = coordinator.lastItemIDs != layoutItems.map(\.id)
         if itemsChanged {
@@ -99,6 +102,8 @@ public class ListCoordinator: NSObject, NSTableViewDataSource, NSTableViewDelega
     var parent: FileListView
     weak var tableView: NSTableView?
     var lastItemIDs: [UUID] = []
+    var draggedRows: IndexSet = []
+    var isDragging = false
 
     private static let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -223,6 +228,81 @@ public class ListCoordinator: NSObject, NSTableViewDataSource, NSTableViewDelega
     public func tableView(_: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? {
         guard row < parent.layoutItems.count else { return nil }
         return parent.layoutItems[row].url as NSURL
+    }
+
+    public func tableView(
+        _: NSTableView, draggingSession _: NSDraggingSession,
+        willBeginAt _: NSPoint, forRowIndexes rowIndexes: IndexSet
+    ) {
+        isDragging = true
+        draggedRows = rowIndexes
+    }
+
+    public func tableView(
+        _: NSTableView, draggingSession _: NSDraggingSession,
+        endedAt _: NSPoint, operation _: NSDragOperation
+    ) {
+        isDragging = false
+        draggedRows = []
+    }
+
+    public func tableView(
+        _ tableView: NSTableView, validateDrop info: NSDraggingInfo,
+        proposedRow row: Int, proposedDropOperation dropOperation: NSTableView.DropOperation
+    ) -> NSDragOperation {
+        if dropOperation == .on {
+            tableView.setDropRow(row, dropOperation: .above)
+        }
+        if info.draggingSource as? NSTableView == tableView {
+            return .move
+        }
+        return .copy
+    }
+
+    public func tableView(
+        _ tableView: NSTableView, acceptDrop info: NSDraggingInfo,
+        row: Int, dropOperation _: NSTableView.DropOperation
+    ) -> Bool {
+        let isInternal = info.draggingSource as? NSTableView == tableView
+
+        if isInternal, let draggedRow = draggedRows.first {
+            let targetRow = min(row, parent.layoutItems.count)
+            let adjustedTarget: Int = if targetRow > draggedRow {
+                min(targetRow - 1, parent.layoutItems.count - 1)
+            } else {
+                targetRow
+            }
+            guard adjustedTarget != draggedRow else { return false }
+
+            let movedItem = parent.layoutItems.remove(at: draggedRow)
+            parent.layoutItems.insert(movedItem, at: min(adjustedTarget, parent.layoutItems.count))
+
+            lastItemIDs = parent.layoutItems.map(\.id)
+
+            tableView.beginUpdates()
+            tableView.moveRow(at: draggedRow, to: adjustedTarget)
+            tableView.endUpdates()
+
+            return true
+        }
+
+        // External drop — insert from Finder
+        let pasteboard = info.draggingPasteboard
+        guard let urls = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL],
+              let url = urls.first
+        else {
+            return false
+        }
+
+        let targetRow = min(row, parent.layoutItems.count)
+        parent.layoutItems.insert(
+            DynamicLayoutItem(url: url, size: CGSize(width: 100, height: 100)),
+            at: targetRow
+        )
+        lastItemIDs = parent.layoutItems.map(\.id)
+        tableView.insertRows(at: IndexSet(integer: targetRow), withAnimation: .slideDown)
+
+        return true
     }
 
     // MARK: - Cell Factories
