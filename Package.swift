@@ -6,16 +6,17 @@ import PackageDescription
 let package = Package(
     name: "DynamicLayout",
     platforms: [
-        .macOS(.v14)
+        .macOS(.v14),
     ],
     products: [
         // Products define the executables and libraries a package produces, making them visible to other packages.
         .library(
             name: "DynamicLayout",
-            targets: ["DynamicLayout"]),
+            targets: ["DynamicLayout"]
+        ),
     ],
     dependencies: [
-        .package(path: "../ImageTools")
+        .package(path: "../ImageTools"),
     ],
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
@@ -26,6 +27,7 @@ let package = Package(
         ),
         .testTarget(
             name: "DynamicLayoutTests",
-            dependencies: ["DynamicLayout"]),
+            dependencies: ["DynamicLayout"]
+        ),
     ]
 )

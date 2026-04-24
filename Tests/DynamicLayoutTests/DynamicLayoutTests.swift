@@ -1,8 +1,8 @@
-import XCTest
 @testable import DynamicLayout
+import XCTest
 
 final class DynamicLayoutTests: XCTestCase {
-    func testExample() throws {
+    func testExample() {
         // XCTest Documentation
         // https://developer.apple.com/documentation/xctest
 
