@@ -105,41 +105,70 @@ public struct FileCollectionView: NSViewRepresentable {
         coordinator.currentFolderURL = folderURL
 
         if layoutChanged {
+            // FLIP morph: capture old positions → swap layout → animate old→new
+            let oldFrames = coordinator.captureVisibleItemFrames(collectionView)
             let newLayout = createLayout(for: layoutMode, items: layoutItems, spacing: itemSpacing, columns: columns, targetSize: targetSize)
             coordinator.lastLayoutMode = layoutMode
             coordinator.lastItemCount = layoutItems.count
             coordinator.lastItemIDs = layoutItems.map(\.id)
 
-            NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = 0.15
-                collectionView.animator().alphaValue = 0
-            } completionHandler: {
-                collectionView.collectionViewLayout = newLayout
-                collectionView.reloadData()
-                NSAnimationContext.runAnimationGroup { ctx in
-                    ctx.duration = 0.15
-                    collectionView.animator().alphaValue = 1
-                }
-            }
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            collectionView.collectionViewLayout = newLayout
+            collectionView.reloadData()
+            collectionView.layoutSubtreeIfNeeded()
+            CATransaction.commit()
+
+            coordinator.animateFromOldFrames(oldFrames, in: collectionView, duration: 0.3)
         } else if itemsChanged {
             coordinator.lastItemCount = layoutItems.count
             coordinator.lastItemIDs = layoutItems.map(\.id)
             updateLayoutItems(collectionView.collectionViewLayout, items: layoutItems)
-            collectionView.reloadData()
 
-            // Restore scroll position when returning to a folder
-            if folderChanged, let url = folderURL,
-               let savedIndex = Coordinator.scrollCache[url],
-               savedIndex > 0, savedIndex < layoutItems.count
-            {
-                DispatchQueue.main.async {
-                    let ip = IndexPath(item: savedIndex, section: 0)
-                    collectionView.scrollToItems(at: [ip], scrollPosition: [.top, .left])
+            if folderChanged {
+                // Folder switch — crossfade since all items are new
+                NSAnimationContext.runAnimationGroup { ctx in
+                    ctx.duration = 0.12
+                    collectionView.animator().alphaValue = 0
+                } completionHandler: {
+                    collectionView.reloadData()
+                    // Restore scroll position
+                    if let url = folderURL,
+                       let savedIndex = Coordinator.scrollCache[url],
+                       savedIndex > 0, savedIndex < layoutItems.count
+                    {
+                        let ip = IndexPath(item: savedIndex, section: 0)
+                        collectionView.scrollToItems(at: [ip], scrollPosition: [.top, .left])
+                    }
+                    NSAnimationContext.runAnimationGroup { ctx in
+                        ctx.duration = 0.12
+                        collectionView.animator().alphaValue = 1
+                    }
                 }
+            } else {
+                // Same folder — items changed (sort, add, remove)
+                let oldFrames = coordinator.captureVisibleItemFrames(collectionView)
+
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                collectionView.reloadData()
+                collectionView.layoutSubtreeIfNeeded()
+                CATransaction.commit()
+
+                coordinator.animateFromOldFrames(oldFrames, in: collectionView)
             }
         } else if spacingChanged || columnsChanged || targetSizeChanged {
+            // FLIP animation for smooth property transitions
+            let oldFrames = coordinator.captureVisibleItemFrames(collectionView)
             updateLayoutProperties(collectionView.collectionViewLayout, spacing: itemSpacing, columns: columns, targetSize: targetSize)
+
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
             collectionView.collectionViewLayout?.invalidateLayout()
+            collectionView.layoutSubtreeIfNeeded()
+            CATransaction.commit()
+
+            coordinator.animateFromOldFrames(oldFrames, in: collectionView, duration: 0.2)
         }
 
         coordinator.lastSpacing = itemSpacing
