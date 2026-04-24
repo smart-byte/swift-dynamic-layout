@@ -79,7 +79,20 @@ public class MoodboardCanvas: NSView {
         }
 
         let dropPoint = convert(sender.draggingLocation, from: nil)
-        let imageSize = sender.draggedImage?.size
+
+        // Pick up the preview size of the first dragging item as a hint for
+        // initial card dimensions. Replaces the deprecated draggedImage API.
+        var imageSize: CGSize?
+        sender.enumerateDraggingItems(
+            options: [],
+            for: self,
+            classes: [NSURL.self],
+            searchOptions: [.urlReadingFileURLsOnly: true]
+        ) { draggingItem, _, stop in
+            imageSize = draggingItem.draggingFrame.size
+            stop.pointee = true
+        }
+
         coordinator?.externalDrop(urls: urls, at: dropPoint, imageSize: imageSize)
         return true
     }
