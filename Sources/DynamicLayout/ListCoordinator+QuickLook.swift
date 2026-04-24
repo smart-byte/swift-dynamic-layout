@@ -9,7 +9,7 @@ import Quartz
 
 // MARK: - Quick Look DataSource & Delegate
 
-extension ListCoordinator: QLPreviewPanelDataSource, QLPreviewPanelDelegate {
+extension ListCoordinator: @preconcurrency QLPreviewPanelDataSource, @preconcurrency QLPreviewPanelDelegate {
     public func numberOfPreviewItems(in _: QLPreviewPanel!) -> Int {
         selectedURLs.count
     }

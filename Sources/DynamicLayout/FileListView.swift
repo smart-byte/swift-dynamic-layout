@@ -110,6 +110,7 @@ public struct FileListView: NSViewRepresentable {
 
 // MARK: - Coordinator
 
+@MainActor
 public class ListCoordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     var parent: FileListView
     weak var tableView: NSTableView?

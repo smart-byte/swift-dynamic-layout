@@ -97,7 +97,7 @@ class NiblessCollectionView: NSCollectionView {
 
         if event.clickCount == 2 {
             let point = convert(event.locationInWindow, from: nil)
-            guard let indexPath = indexPathForItem(at: point),
+            guard indexPathForItem(at: point) != nil,
                   let coordinator = quickLookCoordinator
             else { return }
 
