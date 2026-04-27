@@ -7,7 +7,7 @@
 
 /// Single enum for all layout modes. Moodboard is NOT a layout mode —
 /// it's a separate system.
-public enum LayoutMode: String, CaseIterable, Hashable {
+public enum LayoutMode: String, CaseIterable, Hashable, Codable, Sendable {
     case list
     case verticalFlow
     case waterfall

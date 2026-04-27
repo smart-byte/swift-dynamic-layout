@@ -6,7 +6,7 @@
 //
 
 /// Visual presentation style for collection view items.
-public enum ItemStyle: String, CaseIterable, Hashable {
+public enum ItemStyle: String, CaseIterable, Hashable, Codable, Sendable {
     case photoFrame
     case contactSheet
     case borderless
