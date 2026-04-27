@@ -12,10 +12,12 @@ enum ItemContextMenuBuilder {
     static func menu(
         for urls: [URL],
         quickLookToggle: @escaping () -> Void,
-        detailPreview: @escaping ([URL]) -> Void
+        detailPreview: @escaping ([URL]) -> Void,
+        openInNewWindow: ((URL) -> Void)? = nil
     ) -> NSMenu {
         let menu = NSMenu()
         guard let firstURL = urls.first else { return menu }
+        let isDirectory = (try? firstURL.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
 
         // Quick Look
         let qlItem = NSMenuItem(title: "Quick Look", action: nil, keyEquivalent: " ")
@@ -82,6 +84,17 @@ enum ItemContextMenuBuilder {
             let openWithItem = NSMenuItem(title: "Open With", action: nil, keyEquivalent: "")
             openWithItem.submenu = submenu
             menu.addItem(openWithItem)
+        }
+
+        // Open in New Window — directories only
+        if isDirectory, let openInNewWindow {
+            let newWindowItem = NSMenuItem(title: "Open in New Window", action: nil, keyEquivalent: "")
+            newWindowItem.image = NSImage(systemSymbolName: "macwindow.badge.plus", accessibilityDescription: nil)
+            let newWindowTarget = MenuActionTarget { openInNewWindow(firstURL) }
+            newWindowItem.target = newWindowTarget
+            newWindowItem.action = #selector(MenuActionTarget.invokeAction)
+            newWindowTarget.retainOn(newWindowItem)
+            menu.addItem(newWindowItem)
         }
 
         menu.addItem(.separator())

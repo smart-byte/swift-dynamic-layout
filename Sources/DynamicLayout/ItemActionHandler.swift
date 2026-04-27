@@ -26,6 +26,10 @@ public protocol ItemActionHandler: AnyObject {
     /// alongside the current one.
     func didRequestOpenInNewPane(_ url: URL)
 
+    /// Context-menu action on a directory. Convention: open in a new app
+    /// window.
+    func didRequestOpenInNewWindow(_ url: URL)
+
     /// Right-click context menu action. Opens the in-app preview window —
     /// the same one Quick Look would replace if the user prefers system Quick Look.
     func didRequestDetailPreview(for urls: [URL])

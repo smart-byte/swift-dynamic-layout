@@ -52,7 +52,8 @@ class NiblessTableView: NSTableView {
         return ItemContextMenuBuilder.menu(
             for: urls,
             quickLookToggle: { QuickLookHelpers.togglePanel() },
-            detailPreview: { [weak self] urls in self?.actionHandler?.didRequestDetailPreview(for: urls) }
+            detailPreview: { [weak self] urls in self?.actionHandler?.didRequestDetailPreview(for: urls) },
+            openInNewWindow: { [weak self] url in self?.actionHandler?.didRequestOpenInNewWindow(url) }
         )
     }
 
