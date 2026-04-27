@@ -39,48 +39,30 @@ enum ItemContextMenuBuilder {
 
         menu.addItem(.separator())
 
-        // Open With default app
-        if let defaultAppURL = NSWorkspace.shared.urlForApplication(toOpen: firstURL) {
-            let appName = FileManager.default.displayName(atPath: defaultAppURL.path)
-            let openItem = NSMenuItem(title: "Open with \(appName)", action: nil, keyEquivalent: "")
-            openItem.image = iconForApp(at: defaultAppURL, size: 16)
-            let openTarget = MenuActionTarget {
-                NSWorkspace.shared.open(
-                    urls, withApplicationAt: defaultAppURL,
-                    configuration: NSWorkspace.OpenConfiguration()
-                )
-            }
-            openItem.target = openTarget
-            openItem.action = #selector(MenuActionTarget.invokeAction)
-            openTarget.retainOn(openItem)
-            menu.addItem(openItem)
-        }
-
-        // Open With submenu
+        // Open With submenu — default app at the top, then a divider, then
+        // the rest alphabetically. Matches the Finder layout.
         let allApps = NSWorkspace.shared.urlsForApplications(toOpen: firstURL)
-        if allApps.count > 1 {
+        if !allApps.isEmpty {
+            let defaultAppURL = NSWorkspace.shared.urlForApplication(toOpen: firstURL)
             let submenu = NSMenu()
-            let sortedApps = allApps.sorted {
-                FileManager.default.displayName(atPath: $0.path)
-                    .localizedCaseInsensitiveCompare(
-                        FileManager.default.displayName(atPath: $1.path)
-                    ) == .orderedAscending
+
+            if let defaultAppURL {
+                submenu.addItem(makeAppItem(appURL: defaultAppURL, urls: urls))
+                submenu.addItem(.separator())
             }
-            for appURL in sortedApps {
-                let name = FileManager.default.displayName(atPath: appURL.path)
-                let appItem = NSMenuItem(title: name, action: nil, keyEquivalent: "")
-                appItem.image = iconForApp(at: appURL, size: 16)
-                let appTarget = MenuActionTarget {
-                    NSWorkspace.shared.open(
-                        urls, withApplicationAt: appURL,
-                        configuration: NSWorkspace.OpenConfiguration()
-                    )
+
+            let restApps = allApps
+                .filter { $0 != defaultAppURL }
+                .sorted {
+                    FileManager.default.displayName(atPath: $0.path)
+                        .localizedCaseInsensitiveCompare(
+                            FileManager.default.displayName(atPath: $1.path)
+                        ) == .orderedAscending
                 }
-                appItem.target = appTarget
-                appItem.action = #selector(MenuActionTarget.invokeAction)
-                appTarget.retainOn(appItem)
-                submenu.addItem(appItem)
+            for appURL in restApps {
+                submenu.addItem(makeAppItem(appURL: appURL, urls: urls))
             }
+
             let openWithItem = NSMenuItem(title: "Open With", action: nil, keyEquivalent: "")
             openWithItem.submenu = submenu
             menu.addItem(openWithItem)
@@ -117,6 +99,22 @@ enum ItemContextMenuBuilder {
         let icon = NSWorkspace.shared.icon(forFile: url.path)
         icon.size = NSSize(width: size, height: size)
         return icon
+    }
+
+    private static func makeAppItem(appURL: URL, urls: [URL]) -> NSMenuItem {
+        let name = FileManager.default.displayName(atPath: appURL.path)
+        let item = NSMenuItem(title: name, action: nil, keyEquivalent: "")
+        item.image = iconForApp(at: appURL, size: 16)
+        let target = MenuActionTarget {
+            NSWorkspace.shared.open(
+                urls, withApplicationAt: appURL,
+                configuration: NSWorkspace.OpenConfiguration()
+            )
+        }
+        item.target = target
+        item.action = #selector(MenuActionTarget.invokeAction)
+        target.retainOn(item)
+        return item
     }
 }
 
