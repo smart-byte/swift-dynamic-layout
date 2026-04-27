@@ -54,6 +54,7 @@ public struct FileCollectionView: NSViewRepresentable {
         collectionView.delegate = context.coordinator
         collectionView.quickLookCoordinator = context.coordinator
         context.coordinator.actionHandler = actionHandler
+        context.coordinator.collectionView = collectionView
         collectionView.actionHandler = actionHandler
 
         collectionView.registerProgrammatic(
@@ -272,6 +273,7 @@ public class Coordinator: NSObject, NSCollectionViewDataSource, NSCollectionView
     var lastColumns: Int = -1
     var lastTargetSize: CGFloat?
     var actionHandler: ItemActionHandler?
+    weak var collectionView: NSCollectionView?
     var draggedIndexPaths: Set<IndexPath> = []
     var isDragging = false
     var isProcessingDrop = false
@@ -341,10 +343,29 @@ extension Coordinator: QLPreviewPanelDataSource, QLPreviewPanelDelegate {
         return urls[index] as NSURL
     }
 
-    public func previewPanel(_: QLPreviewPanel!, handle event: NSEvent!) -> Bool {
-        if event.type == .keyDown, event.characters == " " {
+    public func previewPanel(_ panel: QLPreviewPanel!, handle event: NSEvent!) -> Bool {
+        guard event.type == .keyDown else { return false }
+        switch event.specialKey {
+        case .leftArrow?, .upArrow?:
+            moveSelection(by: -1, panel: panel)
             return true
+        case .rightArrow?, .downArrow?:
+            moveSelection(by: 1, panel: panel)
+            return true
+        default:
+            return event.characters == " "
         }
-        return false
+    }
+
+    private func moveSelection(by delta: Int, panel: QLPreviewPanel) {
+        guard let collectionView, !parent.layoutItems.isEmpty else { return }
+        let current = collectionView.selectionIndexPaths.first?.item ?? 0
+        let next = max(0, min(parent.layoutItems.count - 1, current + delta))
+        guard next != current else { return }
+        let path = IndexPath(item: next, section: 0)
+        collectionView.selectionIndexPaths = [path]
+        parent.selection = [path]
+        collectionView.scrollToItems(at: [path], scrollPosition: .nearestHorizontalEdge)
+        panel.reloadData()
     }
 }
