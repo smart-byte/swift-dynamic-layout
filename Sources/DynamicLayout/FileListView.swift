@@ -93,6 +93,8 @@ public struct FileListView: NSViewRepresentable {
         let coordinator = context.coordinator
         coordinator.parent = self
         coordinator.actionHandler = actionHandler
+        // Each body re-render hands us a fresh handler instance — sync it.
+        (coordinator.tableView as? NiblessTableView)?.actionHandler = actionHandler
 
         if coordinator.isDragging { return }
 
@@ -250,9 +252,16 @@ public class ListCoordinator: NSObject, NSTableViewDataSource, NSTableViewDelega
     // MARK: - Double-Click
 
     @objc func handleDoubleClick(_: Any?) {
-        let urls = selectedURLs
-        guard !urls.isEmpty else { return }
-        (tableView as? NiblessTableView)?.actionHandler?.didRequestDetailPreview(for: urls)
+        guard let url = selectedURLs.first,
+              let actionHandler = (tableView as? NiblessTableView)?.actionHandler
+        else { return }
+        let cmdHeld = NSEvent.modifierFlags.contains(.command)
+        let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+        switch (isDir, cmdHeld) {
+        case (true, true): actionHandler.didRequestOpenInNewPane(url)
+        case (true, false): actionHandler.didRequestNavigate(into: url)
+        case (false, _): actionHandler.didRequestOpenFile(url)
+        }
     }
 
     // MARK: - Drag

@@ -95,6 +95,9 @@ public struct FileCollectionView: NSViewRepresentable {
 
         coordinator.parent = self
         coordinator.actionHandler = actionHandler
+        // Keep the collection view's pointer in sync with the latest handler;
+        // each body re-render hands us a freshly-allocated handler instance.
+        (collectionView as? NiblessCollectionView)?.actionHandler = actionHandler
 
         // Save scroll position for the current folder before switching
         if itemsChanged, let url = coordinator.currentFolderURL {

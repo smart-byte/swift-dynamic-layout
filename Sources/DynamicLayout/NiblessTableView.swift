@@ -10,7 +10,7 @@ import Quartz
 /// NSTableView subclass with Quick Look (Space), context menu, and double-click support.
 class NiblessTableView: NSTableView {
     weak var quickLookCoordinator: ListCoordinator?
-    weak var actionHandler: ItemActionHandler?
+    var actionHandler: ItemActionHandler?
 
     // MARK: - Quick Look
 

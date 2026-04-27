@@ -14,7 +14,7 @@ class NiblessCollectionView: NSCollectionView {
     private var programmaticClasses: [NSUserInterfaceItemIdentifier: NSCollectionViewItem.Type] = [:]
 
     weak var quickLookCoordinator: Coordinator?
-    weak var actionHandler: ItemActionHandler?
+    var actionHandler: ItemActionHandler?
 
     func registerProgrammatic(
         _ itemClass: NSCollectionViewItem.Type,
@@ -95,16 +95,29 @@ class NiblessCollectionView: NSCollectionView {
     override func mouseDown(with event: NSEvent) {
         super.mouseDown(with: event)
 
-        if event.clickCount == 2 {
-            let point = convert(event.locationInWindow, from: nil)
-            guard indexPathForItem(at: point) != nil,
-                  let coordinator = quickLookCoordinator
-            else { return }
+        guard event.clickCount == 2 else { return }
 
-            let urls = coordinator.selectedURLs
-            if !urls.isEmpty {
-                actionHandler?.didRequestDetailPreview(for: urls)
+        let point = convert(event.locationInWindow, from: nil)
+        guard indexPathForItem(at: point) != nil,
+              let coordinator = quickLookCoordinator,
+              let url = coordinator.selectedURLs.first
+        else { return }
+
+        let cmdHeld = event.modifierFlags.contains(.command)
+        dispatchDoubleClick(url: url, cmdHeld: cmdHeld)
+    }
+
+    private func dispatchDoubleClick(url: URL, cmdHeld: Bool) {
+        let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+
+        if isDir {
+            if cmdHeld {
+                actionHandler?.didRequestOpenInNewPane(url)
+            } else {
+                actionHandler?.didRequestNavigate(into: url)
             }
+        } else {
+            actionHandler?.didRequestOpenFile(url)
         }
     }
 
