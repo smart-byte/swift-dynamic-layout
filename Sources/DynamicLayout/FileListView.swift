@@ -71,6 +71,7 @@ public struct FileListView: NSViewRepresentable {
         kindColumn.sortDescriptorPrototype = NSSortDescriptor(key: "kind", ascending: true, selector: #selector(NSString.localizedCaseInsensitiveCompare(_:)))
         tableView.addTableColumn(kindColumn)
 
+        tableView.columnAutoresizingStyle = .firstColumnOnlyAutoresizingStyle
         tableView.dataSource = context.coordinator
         tableView.delegate = context.coordinator
 
@@ -166,6 +167,7 @@ public class ListCoordinator: NSObject, NSTableViewDataSource, NSTableViewDelega
 
         case "date":
             let cell = tableView.makeView(withIdentifier: cellID, owner: nil) as? NSTableCellView ?? makeTextCell(identifier: cellID)
+            cell.textField?.alignment = .right
             if let date = item.modificationDate {
                 cell.textField?.stringValue = Self.dateFormatter.string(from: date)
             } else {
@@ -175,6 +177,7 @@ public class ListCoordinator: NSObject, NSTableViewDataSource, NSTableViewDelega
 
         case "size":
             let cell = tableView.makeView(withIdentifier: cellID, owner: nil) as? NSTableCellView ?? makeTextCell(identifier: cellID)
+            cell.textField?.alignment = .right
             if item.fileSize > 0 {
                 cell.textField?.stringValue = Self.sizeFormatter.string(fromByteCount: item.fileSize)
             } else {
@@ -184,6 +187,7 @@ public class ListCoordinator: NSObject, NSTableViewDataSource, NSTableViewDelega
 
         case "kind":
             let cell = tableView.makeView(withIdentifier: cellID, owner: nil) as? NSTableCellView ?? makeTextCell(identifier: cellID)
+            cell.textField?.alignment = .right
             cell.textField?.stringValue = item.fileKind
             return cell
 
@@ -380,19 +384,16 @@ public class ListCoordinator: NSObject, NSTableViewDataSource, NSTableViewDelega
     private func makeTextCell(identifier: NSUserInterfaceItemIdentifier) -> NSTableCellView {
         let cell = NSTableCellView()
         cell.identifier = identifier
-
         let textField = NSTextField(labelWithString: "")
         textField.lineBreakMode = .byTruncatingTail
         textField.translatesAutoresizingMaskIntoConstraints = false
         cell.addSubview(textField)
         cell.textField = textField
-
         NSLayoutConstraint.activate([
             textField.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 2),
             textField.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -2),
             textField.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
         ])
-
         return cell
     }
 }
