@@ -14,9 +14,58 @@ public class PinboardCanvas: NSView {
 
     private let gridSpacing: CGFloat = 50
     private let gridColor = NSColor.gray.withAlphaComponent(0.1)
+    /// One-shot guard for the initial centre-scroll: the canvas is much
+    /// larger than the visible viewport, so we land the user in the middle
+    /// of the surface on first appearance instead of the top-left corner.
+    private var didCenterInitially = false
 
     override public var isFlipped: Bool {
         true
+    }
+
+    override public func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard window != nil, !didCenterInitially else { return }
+        // Defer to the next runloop tick so the enclosing scroll view has
+        // finished its first layout pass (otherwise its contentView bounds
+        // are still zero and the centre offset comes out wrong).
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            scrollToCenter()
+            didCenterInitially = true
+        }
+    }
+
+    private func scrollToCenter() {
+        guard let scrollView = enclosingScrollView else { return }
+        let visible = scrollView.contentView.bounds.size
+        guard visible.width > 0, visible.height > 0 else { return }
+        let origin = NSPoint(
+            x: (bounds.width - visible.width) / 2,
+            y: (bounds.height - visible.height) / 2
+        )
+        scrollView.contentView.scroll(to: origin)
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+    }
+
+    /// `⌥` + scroll wheel zooms the canvas centred on the mouse cursor —
+    /// matches Sketch / Affinity / Photoshop. We deliberately avoid `⌃`
+    /// because macOS reserves it for the system-wide Accessibility zoom.
+    /// Without the modifier the event falls through to NSScrollView for
+    /// normal panning.
+    override public func scrollWheel(with event: NSEvent) {
+        guard event.modifierFlags.contains(.option),
+              let scrollView = enclosingScrollView
+        else {
+            super.scrollWheel(with: event)
+            return
+        }
+        let factor = 1.0 + event.scrollingDeltaY * 0.02
+        let target = scrollView.magnification * factor
+        let clamped = max(scrollView.minMagnification, min(scrollView.maxMagnification, target))
+        let mouseInCanvas = convert(event.locationInWindow, from: nil)
+        scrollView.setMagnification(clamped, centeredAt: mouseInCanvas)
+        coordinator?.zoomChanged(clamped)
     }
 
     override public func draw(_ dirtyRect: NSRect) {

@@ -17,6 +17,7 @@ public struct PinboardCanvasView: NSViewRepresentable {
     let onItemReordered: ((UUID, PinboardCanvasAction) -> Void)?
     let onItemRemoved: ((UUID) -> Void)?
     let onExternalDrop: (([URL], CGPoint, CGSize?) -> Void)?
+    let onZoomChanged: ((CGFloat) -> Void)?
 
     public init(
         items: [PinboardCanvasItemData],
@@ -25,7 +26,8 @@ public struct PinboardCanvasView: NSViewRepresentable {
         onItemResized: ((UUID, CGSize) -> Void)? = nil,
         onItemReordered: ((UUID, PinboardCanvasAction) -> Void)? = nil,
         onItemRemoved: ((UUID) -> Void)? = nil,
-        onExternalDrop: (([URL], CGPoint, CGSize?) -> Void)? = nil
+        onExternalDrop: (([URL], CGPoint, CGSize?) -> Void)? = nil,
+        onZoomChanged: ((CGFloat) -> Void)? = nil
     ) {
         self.items = items
         self.onItemMoved = onItemMoved
@@ -34,6 +36,7 @@ public struct PinboardCanvasView: NSViewRepresentable {
         self.onItemReordered = onItemReordered
         self.onItemRemoved = onItemRemoved
         self.onExternalDrop = onExternalDrop
+        self.onZoomChanged = onZoomChanged
     }
 
     public func makeNSView(context: Context) -> NSScrollView {
@@ -53,6 +56,12 @@ public struct PinboardCanvasView: NSViewRepresentable {
 
         // Register for drag & drop on the canvas itself
         canvas.registerForDraggedTypes([.fileURL])
+
+        // Surface trackpad-pinch magnification changes to the host —
+        // the `⌥`+scroll path fires the callback inline in
+        // `PinboardCanvas.scrollWheel`, so this notification covers
+        // the native pinch gesture and any other scroll-view source.
+        context.coordinator.observeMagnification(in: scrollView)
 
         updateCanvas(canvas, with: items)
 
@@ -147,9 +156,33 @@ public enum PinboardCanvasAction {
 public class PinboardCanvasCoordinator: NSObject {
     var parent: PinboardCanvasView
     weak var canvas: PinboardCanvas?
+    weak var scrollView: NSScrollView?
 
     init(_ parent: PinboardCanvasView) {
         self.parent = parent
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    func observeMagnification(in scrollView: NSScrollView) {
+        self.scrollView = scrollView
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(magnificationDidEnd(_:)),
+            name: NSScrollView.didEndLiveMagnifyNotification,
+            object: scrollView
+        )
+    }
+
+    @objc private func magnificationDidEnd(_ notification: Notification) {
+        guard let sv = notification.object as? NSScrollView else { return }
+        parent.onZoomChanged?(sv.magnification)
+    }
+
+    func zoomChanged(_ magnification: CGFloat) {
+        parent.onZoomChanged?(magnification)
     }
 
     func itemMoved(_ id: UUID, to point: CGPoint) {
