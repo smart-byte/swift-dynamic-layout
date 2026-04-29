@@ -101,9 +101,21 @@ public struct FileListView: NSViewRepresentable {
 
         if coordinator.isDragging { return }
 
-        let itemsChanged = coordinator.lastItemIDs != layoutItems.map(\.id)
-        if itemsChanged {
-            coordinator.lastItemIDs = layoutItems.map(\.id)
+        // Cheap pre-check before the full ID diff: if count is the same
+        // AND first/last IDs match, the array hasn't changed (assuming
+        // stable IDs, which our pipeline guarantees). Skips the O(N)
+        // `map(\.id)` allocation per resize frame at e.g. 1000 items.
+        let countChanged = coordinator.lastItemCount != layoutItems.count
+        let endpointsChanged = coordinator.lastFirstID != layoutItems.first?.id
+            || coordinator.lastLastID != layoutItems.last?.id
+        guard countChanged || endpointsChanged else { return }
+
+        let newIDs = layoutItems.map(\.id)
+        if coordinator.lastItemIDs != newIDs {
+            coordinator.lastItemIDs = newIDs
+            coordinator.lastItemCount = layoutItems.count
+            coordinator.lastFirstID = layoutItems.first?.id
+            coordinator.lastLastID = layoutItems.last?.id
             coordinator.tableView?.reloadData()
         }
     }

@@ -15,6 +15,11 @@ public class ListCoordinator: NSObject, NSTableViewDataSource, NSTableViewDelega
     weak var tableView: NSTableView?
     var actionHandler: ItemActionHandler?
     var lastItemIDs: [UUID] = []
+    /// Cheap-diff endpoints used by `FileListView.updateNSView` to skip
+    /// the full `layoutItems.map(\.id)` allocation when nothing changed.
+    var lastItemCount: Int = 0
+    var lastFirstID: UUID?
+    var lastLastID: UUID?
     var draggedRows: IndexSet = []
     var isDragging = false
 
