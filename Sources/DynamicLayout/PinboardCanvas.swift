@@ -1,5 +1,5 @@
 //
-//  MoodboardCanvas.swift
+//  PinboardCanvas.swift
 //
 //
 //  Created by Mario Heubach on 01.03.26.
@@ -7,10 +7,10 @@
 
 import AppKit
 
-/// Custom NSView that serves as the canvas for moodboard items.
+/// Custom NSView that serves as the canvas for pinboard items.
 /// Provides a large drawing surface with a subtle grid background.
-public class MoodboardCanvas: NSView {
-    weak var coordinator: MoodboardCanvasCoordinator?
+public class PinboardCanvas: NSView {
+    weak var coordinator: PinboardCanvasCoordinator?
 
     private let gridSpacing: CGFloat = 50
     private let gridColor = NSColor.gray.withAlphaComponent(0.1)
@@ -54,7 +54,7 @@ public class MoodboardCanvas: NSView {
 
     func sortSubviewsByZIndex() {
         let sorted = subviews
-            .compactMap { $0 as? MoodboardCanvasItem }
+            .compactMap { $0 as? PinboardCanvasItem }
             .sorted { $0.zIndex < $1.zIndex }
         for item in sorted {
             addSubview(item)

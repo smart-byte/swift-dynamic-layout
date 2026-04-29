@@ -1,5 +1,5 @@
 //
-//  MoodboardCanvasItem.swift
+//  PinboardCanvasItem.swift
 //
 //
 //  Created by Mario Heubach on 01.03.26.
@@ -11,13 +11,13 @@ import ImageTools
 /// Draggable canvas item with rotation, z-index, and context menu.
 /// Styled with shadow and border for a physical photo feel.
 /// Corner regions allow rotate+scale via mouse drag.
-public class MoodboardCanvasItem: NSView {
+public class PinboardCanvasItem: NSView {
     let itemID: UUID
     let imageURL: URL
     var rotationAngle: CGFloat
     var zIndex: Int
 
-    weak var canvas: MoodboardCanvas?
+    weak var canvas: PinboardCanvas?
 
     private var imageView: NSImageView!
     private var dragOrigin: NSPoint = .zero

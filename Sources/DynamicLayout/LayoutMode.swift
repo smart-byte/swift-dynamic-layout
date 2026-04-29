@@ -5,7 +5,7 @@
 //  Created by Mario Heubach on 29.04.24.
 //
 
-/// Single enum for all layout modes. Moodboard is NOT a layout mode —
+/// Single enum for all layout modes. Pinboard is NOT a layout mode —
 /// it's a separate system.
 public enum LayoutMode: String, CaseIterable, Hashable, Codable, Sendable {
     case list

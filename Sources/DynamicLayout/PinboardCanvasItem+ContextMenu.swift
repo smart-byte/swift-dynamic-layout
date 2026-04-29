@@ -1,5 +1,5 @@
 //
-//  MoodboardCanvasItem+ContextMenu.swift
+//  PinboardCanvasItem+ContextMenu.swift
 //
 //
 //  Created by Mario Heubach on 01.03.26.
@@ -7,7 +7,7 @@
 
 import AppKit
 
-extension MoodboardCanvasItem {
+extension PinboardCanvasItem {
     func buildContextMenu() -> NSMenu {
         let menu = NSMenu()
 
