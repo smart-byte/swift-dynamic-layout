@@ -18,6 +18,14 @@ public struct PinboardCanvasView: NSViewRepresentable {
     let onItemRemoved: ((UUID) -> Void)?
     let onExternalDrop: (([URL], CGPoint, CGSize?) -> Void)?
     let onZoomChanged: ((CGFloat) -> Void)?
+    /// Fires whenever the scroll position or magnification changes.
+    /// `origin` is the top-left of the visible region in canvas coordinates;
+    /// `visibleSize` is the visible area in canvas coordinates (clip-view / magnification).
+    let onScrollChanged: ((_ origin: CGPoint, _ visibleSize: CGSize) -> Void)?
+    /// When non-nil, the canvas smoothly scrolls so this point becomes the
+    /// new top-left of the visible region. `PinboardView` sets this from the
+    /// mini-map's `onScrollTo` callback, then immediately resets it to nil.
+    @Binding var scrollTarget: CGPoint?
 
     public init(
         items: [PinboardCanvasItemData],
@@ -27,7 +35,9 @@ public struct PinboardCanvasView: NSViewRepresentable {
         onItemReordered: ((UUID, PinboardCanvasAction) -> Void)? = nil,
         onItemRemoved: ((UUID) -> Void)? = nil,
         onExternalDrop: (([URL], CGPoint, CGSize?) -> Void)? = nil,
-        onZoomChanged: ((CGFloat) -> Void)? = nil
+        onZoomChanged: ((CGFloat) -> Void)? = nil,
+        onScrollChanged: ((_ origin: CGPoint, _ visibleSize: CGSize) -> Void)? = nil,
+        scrollTarget: Binding<CGPoint?> = .constant(nil)
     ) {
         self.items = items
         self.onItemMoved = onItemMoved
@@ -37,6 +47,8 @@ public struct PinboardCanvasView: NSViewRepresentable {
         self.onItemRemoved = onItemRemoved
         self.onExternalDrop = onExternalDrop
         self.onZoomChanged = onZoomChanged
+        self.onScrollChanged = onScrollChanged
+        _scrollTarget = scrollTarget
     }
 
     public func makeNSView(context: Context) -> NSScrollView {
@@ -62,6 +74,9 @@ public struct PinboardCanvasView: NSViewRepresentable {
         // `PinboardCanvas.scrollWheel`, so this notification covers
         // the native pinch gesture and any other scroll-view source.
         context.coordinator.observeMagnification(in: scrollView)
+        // Subscribe to clip-view bounds changes so the mini-map updates
+        // live during scroll and zoom.
+        context.coordinator.observeScroll(in: scrollView)
 
         updateCanvas(canvas, with: items)
 
@@ -72,6 +87,16 @@ public struct PinboardCanvasView: NSViewRepresentable {
         guard let canvas = nsView.documentView as? PinboardCanvas else { return }
         context.coordinator.parent = self
         updateCanvas(canvas, with: items)
+
+        // Apply scroll command from the mini-map (tap or drag-pan).
+        if let target = scrollTarget {
+            context.coordinator.scrollTo(target, in: nsView)
+            // Reset immediately; the binding write triggers another updateNSView
+            // pass but scrollTarget will be nil then, so there is no loop.
+            DispatchQueue.main.async {
+                scrollTarget = nil
+            }
+        }
     }
 
     public func makeCoordinator() -> PinboardCanvasCoordinator {
@@ -176,13 +201,65 @@ public class PinboardCanvasCoordinator: NSObject {
         )
     }
 
+    /// Subscribe to clip-view bounds changes for live scroll/pan updates.
+    /// We listen to both `boundsDidChange` (scroll origin / magnification)
+    /// **and** `frameDidChange` (window or pane resize) so the mini-map's
+    /// viewport rectangle stays accurate in every interaction path.
+    func observeScroll(in scrollView: NSScrollView) {
+        let clip = scrollView.contentView
+        clip.postsBoundsChangedNotifications = true
+        clip.postsFrameChangedNotifications = true
+        let center = NotificationCenter.default
+        for name in [
+            NSView.boundsDidChangeNotification,
+            NSView.frameDidChangeNotification,
+        ] {
+            center.addObserver(
+                self,
+                selector: #selector(clipBoundsChanged(_:)),
+                name: name,
+                object: clip
+            )
+        }
+    }
+
     @objc private func magnificationDidEnd(_ notification: Notification) {
         guard let sv = notification.object as? NSScrollView else { return }
         parent.onZoomChanged?(sv.magnification)
+        reportScrollState(in: sv)
+    }
+
+    @objc private func clipBoundsChanged(_: Notification) {
+        guard let sv = scrollView else { return }
+        reportScrollState(in: sv)
+    }
+
+    /// Computes the current viewport origin and visible size in canvas
+    /// coordinates and forwards them via `onScrollChanged`.
+    private func reportScrollState(in sv: NSScrollView) {
+        let clip = sv.contentView
+        // `clipView.bounds` is already in document (canvas) coordinates —
+        // NSScrollView accounts for magnification internally so the bounds
+        // size shrinks on zoom-in and grows on zoom-out. No further math
+        // is needed; dividing by magnification would double-apply the
+        // scale factor and produce a visibly mis-sized viewport rect.
+        parent.onScrollChanged?(clip.bounds.origin, clip.bounds.size)
     }
 
     func zoomChanged(_ magnification: CGFloat) {
         parent.onZoomChanged?(magnification)
+        if let sv = scrollView { reportScrollState(in: sv) }
+    }
+
+    /// Smoothly scrolls the canvas so `origin` becomes the top-left of the
+    /// visible region. Uses `NSAnimationContext` for an AppKit-native spring.
+    func scrollTo(_ origin: CGPoint, in scrollView: NSScrollView) {
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.25
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            scrollView.contentView.animator().setBoundsOrigin(origin)
+        }
+        scrollView.reflectScrolledClipView(scrollView.contentView)
     }
 
     func itemMoved(_ id: UUID, to point: CGPoint) {
