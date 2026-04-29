@@ -39,10 +39,15 @@ public enum MiniMapDragMode: CaseIterable {
 ///
 /// Renders every item as a proportional filled rectangle and overlays a
 /// viewport rectangle (accent-coloured stroke + semi-transparent fill).
-/// The widget is draggable; on release it snaps to the nearest corner with
-/// a spring animation. Tapping scrolls the canvas to centre on that point;
-/// dragging pans it continuously. The host side decides the corner via the
-/// `corner` binding so the state survives SwiftUI re-renders inside the pane.
+/// `dragMode` decides what a click/drag does:
+///
+/// - `.pan`  — tap or drag aims the canvas viewport at the cursor.
+/// - `.move` — drag offsets the widget; on release it snaps to the
+///             corner whose centre is geometrically closest to where
+///             the user let go, animating from the release position.
+///
+/// The host owns the docked-corner state via the `corner` binding so it
+/// survives SwiftUI re-renders inside the pinboard pane.
 public struct PinboardMiniMap: View {
     // MARK: Inputs
 
@@ -52,7 +57,9 @@ public struct PinboardMiniMap: View {
     public let items: [PinboardCanvasItemData]
     /// Top-left of the visible region in canvas coordinates.
     public let viewportOrigin: CGPoint
-    /// Visible area in canvas coordinates (clip-view size / magnification).
+    /// Visible area in canvas coordinates. AppKit already factors
+    /// magnification into `clipView.bounds`, so this value comes through
+    /// unchanged from the host.
     public let viewportSize: CGSize
     /// Called when the user taps or drags; argument is the new desired
     /// *top-left* of the viewport in canvas coordinates.
@@ -77,7 +84,7 @@ public struct PinboardMiniMap: View {
         onScrollTo: @escaping (CGPoint) -> Void,
         corner: Binding<MiniMapCorner>,
         dragMode: MiniMapDragMode = .pan,
-        hostSize: CGSize = .zero
+        hostSize: CGSize
     ) {
         self.canvasSize = canvasSize
         self.items = items
@@ -141,7 +148,7 @@ public struct PinboardMiniMap: View {
         // Single gesture branches on `dragMode`:
         // `.pan`  — drag aims the canvas viewport at the cursor.
         // `.move` — drag offsets the widget; on release it springs to
-        //          the corner matching the drag direction.
+        //          the corner geometrically closest to the release point.
         .gesture(unifiedGesture())
         // Right-click → corner-dock submenu (always available regardless
         // of mode, complements the move-drag flow).
@@ -192,16 +199,26 @@ public struct PinboardMiniMap: View {
             )
             let rect = CGRect(origin: origin, size: itemSize)
             // Clamp to at least 2×2 so even tiny items remain visible.
-            let clampedRect = CGRect(
+            let clamped = CGRect(
                 x: rect.origin.x,
                 y: rect.origin.y,
                 width: max(rect.width, 2),
                 height: max(rect.height, 2)
             )
-            context.fill(
-                Path(roundedRect: clampedRect, cornerRadius: 1),
-                with: .foreground
-            )
+            // Mirror the canvas item's rotation so the mini-map shows the
+            // same visual orientation. `drawLayer` isolates the transform
+            // so it doesn't bleed into other items.
+            context.drawLayer { layer in
+                if item.rotation != 0 {
+                    layer.translateBy(x: clamped.midX, y: clamped.midY)
+                    layer.rotate(by: .radians(item.rotation))
+                    layer.translateBy(x: -clamped.midX, y: -clamped.midY)
+                }
+                layer.fill(
+                    Path(roundedRect: clamped, cornerRadius: 1),
+                    with: .foreground
+                )
+            }
         }
     }
 

@@ -201,8 +201,11 @@ public class PinboardCanvasItem: NSView {
             let dx = current.x - dragOrigin.x
             let dy = current.y - dragOrigin.y
             layer?.transform = CATransform3DIdentity
-            setFrameOrigin(NSPoint(x: frameOrigin.x + dx, y: frameOrigin.y + dy))
+            let newOrigin = NSPoint(x: frameOrigin.x + dx, y: frameOrigin.y + dy)
+            setFrameOrigin(newOrigin)
             applyRotation()
+            // Live tick — host updates the mini-map without persisting.
+            canvas?.coordinator?.itemMoved(itemID, to: newOrigin, phase: .changed)
 
         case .handleResize:
             let superPoint = superview?.convert(event.locationInWindow, from: nil) ?? event.locationInWindow
@@ -247,9 +250,9 @@ public class PinboardCanvasItem: NSView {
 
         switch dragMode {
         case .move:
-            canvas?.coordinator?.itemMoved(itemID, to: cleanOrigin)
+            canvas?.coordinator?.itemMoved(itemID, to: cleanOrigin, phase: .ended)
         case .handleResize:
-            canvas?.coordinator?.itemMoved(itemID, to: cleanOrigin)
+            canvas?.coordinator?.itemMoved(itemID, to: cleanOrigin, phase: .ended)
             canvas?.coordinator?.itemRotated(itemID, by: rotationAngle)
             canvas?.coordinator?.itemResized(itemID, to: cleanSize)
         }

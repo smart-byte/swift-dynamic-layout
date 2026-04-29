@@ -11,7 +11,10 @@ import SwiftUI
 /// Supports magnification (0.25x–4x) and drag & drop from Finder.
 public struct PinboardCanvasView: NSViewRepresentable {
     let items: [PinboardCanvasItemData]
-    let onItemMoved: ((UUID, CGPoint) -> Void)?
+    /// Called for every drag tick (`.changed`) plus a final `.ended` on
+    /// release. Hosts typically maintain a transient overlay on
+    /// `.changed` and persist on `.ended`.
+    let onItemMoved: ((UUID, CGPoint, PinboardGesturePhase) -> Void)?
     let onItemRotated: ((UUID, CGFloat) -> Void)?
     let onItemResized: ((UUID, CGSize) -> Void)?
     let onItemReordered: ((UUID, PinboardCanvasAction) -> Void)?
@@ -19,8 +22,8 @@ public struct PinboardCanvasView: NSViewRepresentable {
     let onExternalDrop: (([URL], CGPoint, CGSize?) -> Void)?
     let onZoomChanged: ((CGFloat) -> Void)?
     /// Fires whenever the scroll position or magnification changes.
-    /// `origin` is the top-left of the visible region in canvas coordinates;
-    /// `visibleSize` is the visible area in canvas coordinates (clip-view / magnification).
+    /// Both `origin` and `visibleSize` are in canvas coordinates; AppKit
+    /// already accounts for magnification on `clipView.bounds`.
     let onScrollChanged: ((_ origin: CGPoint, _ visibleSize: CGSize) -> Void)?
     /// When non-nil, the canvas smoothly scrolls so this point becomes the
     /// new top-left of the visible region. `PinboardView` sets this from the
@@ -29,7 +32,7 @@ public struct PinboardCanvasView: NSViewRepresentable {
 
     public init(
         items: [PinboardCanvasItemData],
-        onItemMoved: ((UUID, CGPoint) -> Void)? = nil,
+        onItemMoved: ((UUID, CGPoint, PinboardGesturePhase) -> Void)? = nil,
         onItemRotated: ((UUID, CGFloat) -> Void)? = nil,
         onItemResized: ((UUID, CGSize) -> Void)? = nil,
         onItemReordered: ((UUID, PinboardCanvasAction) -> Void)? = nil,
@@ -176,6 +179,17 @@ public enum PinboardCanvasAction {
     case sendToBack
 }
 
+/// Lifecycle phase of a continuous interaction (drag, resize, …).
+///
+/// Hosts use it to skip expensive side-effects (Core Data writes,
+/// undo-grouping, …) on every intermediate tick and only commit on
+/// `.ended`, while still updating cheap UI surfaces (mini-map dots) on
+/// every `.changed`.
+public enum PinboardGesturePhase: Sendable {
+    case changed
+    case ended
+}
+
 // MARK: - Coordinator
 
 public class PinboardCanvasCoordinator: NSObject {
@@ -262,8 +276,8 @@ public class PinboardCanvasCoordinator: NSObject {
         scrollView.reflectScrolledClipView(scrollView.contentView)
     }
 
-    func itemMoved(_ id: UUID, to point: CGPoint) {
-        parent.onItemMoved?(id, point)
+    func itemMoved(_ id: UUID, to point: CGPoint, phase: PinboardGesturePhase) {
+        parent.onItemMoved?(id, point, phase)
     }
 
     func itemRotated(_ id: UUID, by angle: CGFloat) {
