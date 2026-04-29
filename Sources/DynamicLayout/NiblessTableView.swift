@@ -53,7 +53,9 @@ class NiblessTableView: NSTableView {
             for: urls,
             quickLookToggle: { QuickLookHelpers.togglePanel() },
             detailPreview: { [weak self] urls in self?.actionHandler?.didRequestDetailPreview(for: urls) },
-            openInNewWindow: { [weak self] url in self?.actionHandler?.didRequestOpenInNewWindow(url) }
+            openInNewWindow: { [weak self] url in self?.actionHandler?.didRequestOpenInNewWindow(url) },
+            copyPath: { [weak self] urls in self?.actionHandler?.didRequestCopyPath(urls) },
+            moveToTrash: { [weak self] urls in self?.actionHandler?.didRequestMoveToTrash(urls) }
         )
     }
 
