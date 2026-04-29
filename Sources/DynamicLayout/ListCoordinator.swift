@@ -165,7 +165,9 @@ public class ListCoordinator: NSObject, NSTableViewDataSource, NSTableViewDelega
         let cmdHeld = NSEvent.modifierFlags.contains(.command)
         let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
         switch (isDir, cmdHeld) {
-        case (true, true): actionHandler.didRequestOpenInNewPane(url)
+        // Finder convention: ⌘-double-click on a directory opens it in a
+        // new tab in the current pane, not a new split.
+        case (true, true): actionHandler.didRequestOpenInNewTab(url)
         case (true, false): actionHandler.didRequestNavigate(into: url)
         case (false, _): actionHandler.didRequestOpenFile(url)
         }

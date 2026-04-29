@@ -14,7 +14,9 @@ enum ItemContextMenuBuilder {
         for urls: [URL],
         quickLookToggle: @escaping () -> Void,
         detailPreview: @escaping ([URL]) -> Void,
+        openInNewTab: ((URL) -> Void)? = nil,
         openInNewWindow: ((URL) -> Void)? = nil,
+        openInNewPane: ((URL) -> Void)? = nil,
         copyPath: (([URL]) -> Void)? = nil,
         moveToTrash: (([URL]) -> Void)? = nil
     ) -> NSMenu {
@@ -23,111 +25,146 @@ enum ItemContextMenuBuilder {
         let isDirectory = (try? firstURL.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
         let isMulti = urls.count > 1
 
+        addPreviewItems(to: menu, urls: urls, isMulti: isMulti, quickLookToggle: quickLookToggle, detailPreview: detailPreview)
+        menu.addItem(.separator())
+        addOpenWithSubmenu(to: menu, urls: urls, firstURL: firstURL)
+        if !isMulti, isDirectory {
+            addOpenElsewhereItems(
+                to: menu,
+                firstURL: firstURL,
+                openInNewTab: openInNewTab,
+                openInNewWindow: openInNewWindow,
+                openInNewPane: openInNewPane
+            )
+        }
+        menu.addItem(.separator())
+        addRevealAndCopyItems(to: menu, urls: urls, isMulti: isMulti, copyPath: copyPath)
+        if let moveToTrash {
+            menu.addItem(.separator())
+            menu.addItem(makeItem(title: "Move to Trash", icon: "trash") { moveToTrash(urls) })
+        }
+        return menu
+    }
+
+    // MARK: - Section builders
+
+    private static func addPreviewItems(
+        to menu: NSMenu,
+        urls: [URL],
+        isMulti: Bool,
+        quickLookToggle: @escaping () -> Void,
+        detailPreview: @escaping ([URL]) -> Void
+    ) {
         // Quick Look — pluralize with the actual selection count for multi.
         let qlTitle = isMulti ? "Quick Look \(urls.count) Items" : "Quick Look"
-        let qlItem = NSMenuItem(title: qlTitle, action: nil, keyEquivalent: " ")
-        qlItem.image = NSImage(systemSymbolName: "eye", accessibilityDescription: nil)
-        let qlTarget = MenuActionTarget { quickLookToggle() }
-        qlItem.target = qlTarget
-        qlItem.action = #selector(MenuActionTarget.invokeAction)
-        qlTarget.retainOn(qlItem)
+        let qlItem = makeItem(title: qlTitle, icon: "eye", keyEquivalent: " ", action: quickLookToggle)
         menu.addItem(qlItem)
 
         // Detail Preview — single-item only; multiple Preview windows are
         // rarely intended and noisy.
         if !isMulti {
-            let previewItem = NSMenuItem(title: "Preview", action: nil, keyEquivalent: "")
-            previewItem.image = NSImage(systemSymbolName: "macwindow", accessibilityDescription: nil)
-            let previewTarget = MenuActionTarget { detailPreview(urls) }
-            previewItem.target = previewTarget
-            previewItem.action = #selector(MenuActionTarget.invokeAction)
-            previewTarget.retainOn(previewItem)
-            menu.addItem(previewItem)
+            menu.addItem(makeItem(title: "Preview", icon: "macwindow") { detailPreview(urls) })
         }
+    }
 
-        menu.addItem(.separator())
-
+    private static func addOpenWithSubmenu(to menu: NSMenu, urls: [URL], firstURL: URL) {
         // Open With submenu — default app at the top, then a divider, then
         // the rest alphabetically. Matches the Finder layout.
         let allApps = NSWorkspace.shared.urlsForApplications(toOpen: firstURL)
-        if !allApps.isEmpty {
-            let defaultAppURL = NSWorkspace.shared.urlForApplication(toOpen: firstURL)
-            let submenu = NSMenu()
+        guard !allApps.isEmpty else { return }
 
-            if let defaultAppURL {
-                submenu.addItem(makeAppItem(appURL: defaultAppURL, urls: urls))
-                submenu.addItem(.separator())
-            }
+        let defaultAppURL = NSWorkspace.shared.urlForApplication(toOpen: firstURL)
+        let submenu = NSMenu()
 
-            let restApps = allApps
-                .filter { $0 != defaultAppURL }
-                .sorted {
-                    FileManager.default.displayName(atPath: $0.path)
-                        .localizedCaseInsensitiveCompare(
-                            FileManager.default.displayName(atPath: $1.path)
-                        ) == .orderedAscending
-                }
-            for appURL in restApps {
-                submenu.addItem(makeAppItem(appURL: appURL, urls: urls))
-            }
-
-            let openWithItem = NSMenuItem(title: "Open With", action: nil, keyEquivalent: "")
-            openWithItem.submenu = submenu
-            menu.addItem(openWithItem)
+        if let defaultAppURL {
+            submenu.addItem(makeAppItem(appURL: defaultAppURL, urls: urls))
+            submenu.addItem(.separator())
         }
 
-        // Open in New Window — directories only, single-selection only to
-        // avoid spawning many windows by accident.
-        if !isMulti, isDirectory, let openInNewWindow {
-            let newWindowItem = NSMenuItem(title: "Open in New Window", action: nil, keyEquivalent: "")
-            newWindowItem.image = NSImage(systemSymbolName: "macwindow.badge.plus", accessibilityDescription: nil)
-            let newWindowTarget = MenuActionTarget { openInNewWindow(firstURL) }
-            newWindowItem.target = newWindowTarget
-            newWindowItem.action = #selector(MenuActionTarget.invokeAction)
-            newWindowTarget.retainOn(newWindowItem)
-            menu.addItem(newWindowItem)
+        let restApps = allApps
+            .filter { $0 != defaultAppURL }
+            .sorted {
+                FileManager.default.displayName(atPath: $0.path)
+                    .localizedCaseInsensitiveCompare(
+                        FileManager.default.displayName(atPath: $1.path)
+                    ) == .orderedAscending
+            }
+        for appURL in restApps {
+            submenu.addItem(makeAppItem(appURL: appURL, urls: urls))
         }
 
-        menu.addItem(.separator())
+        let openWithItem = NSMenuItem(title: "Open With", action: nil, keyEquivalent: "")
+        openWithItem.submenu = submenu
+        menu.addItem(openWithItem)
+    }
 
-        // Reveal in Finder
-        let revealItem = NSMenuItem(title: "Reveal in Finder", action: nil, keyEquivalent: "")
-        revealItem.image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
-        let revealTarget = MenuActionTarget {
+    /// Directory-only "open elsewhere" group. Single-selection only so
+    /// accidental clicks on a wide selection don't spawn dozens of
+    /// tabs/windows. Order follows Finder/Safari convention: Tab first,
+    /// Window second; the Pane variant is Voila-specific and trails.
+    private static func addOpenElsewhereItems(
+        to menu: NSMenu,
+        firstURL: URL,
+        openInNewTab: ((URL) -> Void)?,
+        openInNewWindow: ((URL) -> Void)?,
+        openInNewPane: ((URL) -> Void)?
+    ) {
+        if let openInNewTab {
+            menu.addItem(makeItem(title: "Open in New Tab", icon: "plus.rectangle.on.rectangle") {
+                openInNewTab(firstURL)
+            })
+        }
+        if let openInNewWindow {
+            menu.addItem(makeItem(title: "Open in New Window", icon: "macwindow.badge.plus") {
+                openInNewWindow(firstURL)
+            })
+        }
+        if let openInNewPane {
+            menu.addItem(makeItem(title: "Open in New Pane", icon: "rectangle.split.2x1") {
+                openInNewPane(firstURL)
+            })
+        }
+    }
+
+    private static func addRevealAndCopyItems(
+        to menu: NSMenu,
+        urls: [URL],
+        isMulti: Bool,
+        copyPath: (([URL]) -> Void)?
+    ) {
+        menu.addItem(makeItem(title: "Reveal in Finder", icon: "folder") {
             NSWorkspace.shared.activateFileViewerSelecting(urls)
-        }
-        revealItem.target = revealTarget
-        revealItem.action = #selector(MenuActionTarget.invokeAction)
-        revealTarget.retainOn(revealItem)
-        menu.addItem(revealItem)
+        })
 
         // Copy Path — title and icon mirror AppAction.copyPath so menu and
         // keyboard shortcut stay in sync. Pluralize for multi-selection.
         if let copyPath {
             let copyTitle = isMulti ? "Copy \(urls.count) Paths" : "Copy Path"
-            let copyItem = NSMenuItem(title: copyTitle, action: nil, keyEquivalent: "")
-            copyItem.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: nil)
-            let copyTarget = MenuActionTarget { copyPath(urls) }
-            copyItem.target = copyTarget
-            copyItem.action = #selector(MenuActionTarget.invokeAction)
-            copyTarget.retainOn(copyItem)
-            menu.addItem(copyItem)
+            menu.addItem(makeItem(title: copyTitle, icon: "doc.on.doc") { copyPath(urls) })
         }
+    }
 
-        // Move to Trash — destructive, separated and pinned to the bottom.
-        // Title and icon mirror AppAction.moveToTrash.
-        if let moveToTrash {
-            menu.addItem(.separator())
-            let trashItem = NSMenuItem(title: "Move to Trash", action: nil, keyEquivalent: "")
-            trashItem.image = NSImage(systemSymbolName: "trash", accessibilityDescription: nil)
-            let trashTarget = MenuActionTarget { moveToTrash(urls) }
-            trashItem.target = trashTarget
-            trashItem.action = #selector(MenuActionTarget.invokeAction)
-            trashTarget.retainOn(trashItem)
-            menu.addItem(trashItem)
+    // MARK: - Item factories
+
+    /// Builds a closure-driven NSMenuItem with the standard Voila styling.
+    /// `keyEquivalent` defaults to `""`; passing `" "` matches Quick Look's
+    /// space-bar shortcut for visual cue (no actual key dispatch happens
+    /// from a context menu).
+    private static func makeItem(
+        title: String,
+        icon: String?,
+        keyEquivalent: String = "",
+        action: @escaping () -> Void
+    ) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: keyEquivalent)
+        if let icon {
+            item.image = NSImage(systemSymbolName: icon, accessibilityDescription: nil)
         }
-
-        return menu
+        let target = MenuActionTarget(action)
+        item.target = target
+        item.action = #selector(MenuActionTarget.invokeAction)
+        target.retainOn(item)
+        return item
     }
 
     private static func iconForApp(at url: URL, size: CGFloat) -> NSImage {

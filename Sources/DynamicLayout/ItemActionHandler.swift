@@ -22,8 +22,12 @@ public protocol ItemActionHandler: AnyObject {
     /// view into the directory (Finder-style in-place navigation).
     func didRequestNavigate(into url: URL)
 
-    /// Cmd-double-click on a directory. Convention: open in a new pane
-    /// alongside the current one.
+    /// Cmd-double-click on a directory. Convention: open in a new tab in
+    /// the current pane (Finder convention).
+    func didRequestOpenInNewTab(_ url: URL)
+
+    /// Context-menu action on a directory. Convention: open in a new pane
+    /// next to the current one (Voila-specific split-view feature).
     func didRequestOpenInNewPane(_ url: URL)
 
     /// Context-menu action on a directory. Convention: open in a new app

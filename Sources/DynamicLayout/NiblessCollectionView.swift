@@ -106,7 +106,9 @@ class NiblessCollectionView: NSCollectionView {
             for: urls,
             quickLookToggle: { QuickLookHelpers.togglePanel() },
             detailPreview: { [weak self] urls in self?.actionHandler?.didRequestDetailPreview(for: urls) },
+            openInNewTab: { [weak self] url in self?.actionHandler?.didRequestOpenInNewTab(url) },
             openInNewWindow: { [weak self] url in self?.actionHandler?.didRequestOpenInNewWindow(url) },
+            openInNewPane: { [weak self] url in self?.actionHandler?.didRequestOpenInNewPane(url) },
             copyPath: { [weak self] urls in self?.actionHandler?.didRequestCopyPath(urls) },
             moveToTrash: { [weak self] urls in self?.actionHandler?.didRequestMoveToTrash(urls) }
         )
@@ -135,7 +137,10 @@ class NiblessCollectionView: NSCollectionView {
 
         if isDir {
             if cmdHeld {
-                actionHandler?.didRequestOpenInNewPane(url)
+                // Finder convention: ⌘-double-click opens in a new tab in
+                // the current pane, not a new split. Split is reachable
+                // explicitly via the context menu.
+                actionHandler?.didRequestOpenInNewTab(url)
             } else {
                 actionHandler?.didRequestNavigate(into: url)
             }
