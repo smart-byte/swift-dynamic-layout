@@ -43,4 +43,15 @@ public protocol ItemActionHandler: AnyObject {
     /// host performs the actual file-system work and decides how to log
     /// or surface failures.
     func didRequestMoveToTrash(_ urls: [URL])
+
+    /// Background context-menu action: create a new folder inside the
+    /// pane's current directory. The host generates a unique name (Finder
+    /// style) and triggers a reload so the new folder appears.
+    func didRequestNewFolder(in folderURL: URL)
+
+    /// Background context-menu action: reveal the *pane's* folder in
+    /// Finder. Distinct from item-level reveal: that one is wired inline
+    /// in `ItemContextMenuBuilder` and operates on a `[URL]` of items;
+    /// this one targets a single folder URL — the pane's own location.
+    func didRequestRevealFolderInFinder(_ folderURL: URL)
 }

@@ -63,9 +63,29 @@ class NiblessCollectionView: NSCollectionView {
 
     override func rightMouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
+        let clickedIndexPath = indexPathForItem(at: point)
+
+        // Background click — no item under cursor. Show the pane-level
+        // menu (New Folder, Reveal in Finder, …) instead of falling
+        // through to a no-op.
+        if clickedIndexPath == nil {
+            if let coordinator = quickLookCoordinator,
+               let folderURL = coordinator.currentFolderURL
+            {
+                let menu = BackgroundContextMenuBuilder.menu(
+                    forFolder: folderURL,
+                    newFolder: { [weak self] in self?.actionHandler?.didRequestNewFolder(in: folderURL) },
+                    revealInFinder: { [weak self] in self?.actionHandler?.didRequestRevealFolderInFinder(folderURL) }
+                )
+                NSMenu.popUpContextMenu(menu, with: event, for: self)
+                return
+            }
+            super.rightMouseDown(with: event)
+            return
+        }
 
         // Select item under cursor if not already selected
-        if let indexPath = indexPathForItem(at: point),
+        if let indexPath = clickedIndexPath,
            !selectionIndexPaths.contains(indexPath)
         {
             selectionIndexPaths = [indexPath]

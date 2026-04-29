@@ -42,7 +42,14 @@ class NiblessTableView: NSTableView {
         let point = convert(event.locationInWindow, from: nil)
         let clickedRow = row(at: point)
 
-        if clickedRow >= 0, !selectedRowIndexes.contains(clickedRow) {
+        // Background click — clickedRow is -1 when the cursor is below the
+        // last row or in the empty area of an otherwise empty table. Show
+        // the pane-level menu instead of the item menu.
+        if clickedRow < 0 {
+            return backgroundMenu()
+        }
+
+        if !selectedRowIndexes.contains(clickedRow) {
             selectRowIndexes(IndexSet(integer: clickedRow), byExtendingSelection: false)
         }
 
@@ -56,6 +63,15 @@ class NiblessTableView: NSTableView {
             openInNewWindow: { [weak self] url in self?.actionHandler?.didRequestOpenInNewWindow(url) },
             copyPath: { [weak self] urls in self?.actionHandler?.didRequestCopyPath(urls) },
             moveToTrash: { [weak self] urls in self?.actionHandler?.didRequestMoveToTrash(urls) }
+        )
+    }
+
+    private func backgroundMenu() -> NSMenu? {
+        guard let folderURL = quickLookCoordinator?.currentFolderURL else { return nil }
+        return BackgroundContextMenuBuilder.menu(
+            forFolder: folderURL,
+            newFolder: { [weak self] in self?.actionHandler?.didRequestNewFolder(in: folderURL) },
+            revealInFinder: { [weak self] in self?.actionHandler?.didRequestRevealFolderInFinder(folderURL) }
         )
     }
 
