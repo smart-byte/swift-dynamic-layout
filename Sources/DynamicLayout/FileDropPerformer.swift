@@ -118,6 +118,8 @@ enum FileDropPerformer {
     private static func canTransferOne(
         _ source: URL, into destinationFolder: URL, forceCopy: Bool
     ) -> Bool {
+        guard isDirectory(destinationFolder) else { return false }
+
         let dest = destinationFolder.standardizedFileURL
         let src = source.standardizedFileURL
 
