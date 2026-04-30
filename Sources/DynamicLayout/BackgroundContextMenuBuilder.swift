@@ -8,14 +8,13 @@
 import AppKit
 
 /// Builds the context menu shown when the user right-clicks the empty
-/// background of a pane (no item under the cursor). Mirrors SwiftUI's
-/// `.contextMenu(forSelectionType:)` empty-selection branch — the items
-/// here operate on the pane's *current folder*, not on file selection.
+/// background of a pane (no item under the cursor). The items operate on
+/// the pane's *current folder*, not on file selection.
 ///
-/// The `forFolder` URL is currently unused inside the builder (the
-/// closures already know what to do), but is part of the signature so
-/// future entries (Sort By, View Options, Open in Terminal) can read
-/// folder context without forcing every call site to grow new closures.
+/// The `forFolder` URL is part of the signature even though existing
+/// closures already capture it, so future entries (Sort By, View Options,
+/// Open in Terminal) can read folder context without forcing every call
+/// site to grow new closures.
 @MainActor
 enum BackgroundContextMenuBuilder {
     static func menu(
@@ -43,7 +42,6 @@ enum BackgroundContextMenuBuilder {
 
         menu.addItem(.separator())
 
-        // Reveal in Finder — opens Finder with the pane's folder selected.
         let revealItem = NSMenuItem(title: "Reveal in Finder", action: nil, keyEquivalent: "")
         revealItem.image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
         if let revealInFinder {
@@ -63,8 +61,6 @@ enum BackgroundContextMenuBuilder {
 // MARK: - Closure-based menu action target
 
 /// Retains an action closure for an NSMenuItem via associated objects.
-/// Mirrors the helper in `ItemContextMenuBuilder.swift`; kept file-private
-/// here so the two builders stay independently auditable.
 private class MenuActionTarget: NSObject {
     private let action: () -> Void
 

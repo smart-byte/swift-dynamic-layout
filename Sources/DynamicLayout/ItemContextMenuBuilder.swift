@@ -55,21 +55,20 @@ enum ItemContextMenuBuilder {
         quickLookToggle: @escaping () -> Void,
         detailPreview: @escaping ([URL]) -> Void
     ) {
-        // Quick Look — pluralize with the actual selection count for multi.
         let qlTitle = isMulti ? "Quick Look \(urls.count) Items" : "Quick Look"
         let qlItem = makeItem(title: qlTitle, icon: "eye", keyEquivalent: " ", action: quickLookToggle)
         menu.addItem(qlItem)
 
-        // Detail Preview — single-item only; multiple Preview windows are
-        // rarely intended and noisy.
+        // Single-item only; multiple Preview windows are rarely intended
+        // and noisy.
         if !isMulti {
             menu.addItem(makeItem(title: "Preview", icon: "macwindow") { detailPreview(urls) })
         }
     }
 
     private static func addOpenWithSubmenu(to menu: NSMenu, urls: [URL], firstURL: URL) {
-        // Open With submenu — default app at the top, then a divider, then
-        // the rest alphabetically. Matches the Finder layout.
+        // Default app at the top, then a divider, then the rest
+        // alphabetically — matches the Finder layout.
         let allApps = NSWorkspace.shared.urlsForApplications(toOpen: firstURL)
         guard !allApps.isEmpty else { return }
 
@@ -136,8 +135,6 @@ enum ItemContextMenuBuilder {
             NSWorkspace.shared.activateFileViewerSelecting(urls)
         })
 
-        // Copy Path — title and icon mirror AppAction.copyPath so menu and
-        // keyboard shortcut stay in sync. Pluralize for multi-selection.
         if let copyPath {
             let copyTitle = isMulti ? "Copy \(urls.count) Paths" : "Copy Path"
             menu.addItem(makeItem(title: copyTitle, icon: "doc.on.doc") { copyPath(urls) })
@@ -146,7 +143,6 @@ enum ItemContextMenuBuilder {
 
     // MARK: - Item factories
 
-    /// Builds a closure-driven NSMenuItem with the standard Voila styling.
     /// `keyEquivalent` defaults to `""`; passing `" "` matches Quick Look's
     /// space-bar shortcut for visual cue (no actual key dispatch happens
     /// from a context menu).
