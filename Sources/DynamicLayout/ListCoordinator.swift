@@ -61,8 +61,11 @@ public class ListCoordinator: NSObject, NSTableViewDataSource, NSTableViewDelega
             cell.textField?.stringValue = item.url.lastPathComponent
             cell.imageView?.image = nil
 
-            // Load thumbnail async
-            ImageCache.shared.image(for: item.url, maxDimension: 48) { img in
+            // Ask for a larger size than we actually display (24×24) so
+            // QLThumbnailGenerator returns a real preview instead of the
+            // system file-type icon — the cache later feeds the drag
+            // preview from this same entry.
+            ImageCache.shared.image(for: item.url, maxDimension: 64) { img in
                 DispatchQueue.main.async {
                     cell.imageView?.image = img
                 }

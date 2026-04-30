@@ -6,6 +6,7 @@
 //
 
 import AppKit
+import ImageTools
 
 /// Visual style for the drag preview. The choice of style is driven by the
 /// layout under the cursor (source layout when a drag begins, destination
@@ -117,12 +118,18 @@ public enum DragImageComposer {
 
     // MARK: - Icon rendering
 
-    /// Returns a system file icon resized to the style's icon dimension. For
-    /// the .large style we draw the icon into a fresh bitmap with a soft
-    /// drop shadow so the dragging preview gets an extra elevation cue.
+    /// Returns the file's icon resized to the style's icon dimension. Prefers
+    /// a real Quick Look thumbnail from `ImageCache` (so dragged image files
+    /// look like image files instead of generic file blanks) and falls back
+    /// to the system file-type icon when the cache has nothing yet. For the
+    /// `.large` style we draw the icon into a fresh bitmap with a soft drop
+    /// shadow so the dragging preview gets an extra elevation cue.
     private static func renderIcon(for url: URL, style: DragImageStyle) -> NSImage {
-        let baseIcon = NSWorkspace.shared.icon(forFile: url.path)
         let dim = style.iconDimension
+        // Match the dimension the list/collection cells request so the
+        // cache hits the same bucket they already populated.
+        let baseIcon = ImageCache.shared.cachedImage(for: url, maxDimension: 64)
+            ?? NSWorkspace.shared.icon(forFile: url.path)
 
         guard style.drawsShadow else {
             // Fast path: NSWorkspace icons are multi-rep — assigning `size`
