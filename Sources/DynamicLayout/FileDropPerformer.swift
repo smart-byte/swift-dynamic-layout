@@ -98,6 +98,57 @@ enum FileDropPerformer {
         return original
     }
 
+    /// Pre-flight check used by `validateDrop` so the drag cursor flips to
+    /// the not-allowed badge before the user releases the mouse for cases
+    /// `perform` would silently skip:
+    ///   - dragging a folder onto itself
+    ///   - dragging a folder into its own subtree
+    ///   - dragging an item back into its own folder for a non-copy op
+    ///     (move = no-op, copy = "Foo 2.ext" duplicate is intentional)
+    /// Returns `true` if at least one source URL would actually transfer.
+    static func canTransferAny(
+        urls: [URL], into destinationFolder: URL, forceCopy: Bool
+    ) -> Bool {
+        guard !urls.isEmpty else { return false }
+        return urls.contains {
+            canTransferOne($0, into: destinationFolder, forceCopy: forceCopy)
+        }
+    }
+
+    private static func canTransferOne(
+        _ source: URL, into destinationFolder: URL, forceCopy: Bool
+    ) -> Bool {
+        let dest = destinationFolder.standardizedFileURL
+        let src = source.standardizedFileURL
+
+        // Dragging a folder onto itself: pure no-op.
+        if isDirectory(source), src == dest { return false }
+
+        // Dragging a folder into its own subtree creates a recursive loop —
+        // FileManager would reject it; reject here so the cursor reflects.
+        if isDirectory(source), isDescendant(dest, of: src) { return false }
+
+        // Move into the file's own folder is a silent no-op (matches
+        // FileDropPerformer.perform). Copy is allowed because Finder's
+        // ⌥-Duplicate semantics are intentional.
+        let useCopy = forceCopy || !sameVolume(source, destinationFolder)
+        if !useCopy, src.deletingLastPathComponent() == dest { return false }
+
+        return true
+    }
+
+    private static func isDirectory(_ url: URL) -> Bool {
+        let values = try? url.resourceValues(forKeys: [.isDirectoryKey])
+        return values?.isDirectory == true
+    }
+
+    private static func isDescendant(_ candidate: URL, of ancestor: URL) -> Bool {
+        let candidateComponents = candidate.standardizedFileURL.pathComponents
+        let ancestorComponents = ancestor.standardizedFileURL.pathComponents
+        guard candidateComponents.count > ancestorComponents.count else { return false }
+        return Array(candidateComponents.prefix(ancestorComponents.count)) == ancestorComponents
+    }
+
     /// Volume-equality test used to choose move vs. copy. Cross-volume
     /// `moveItem` would silently fall back to copy+delete in the kernel —
     /// we do the choice explicitly so the cursor badge in `validateDrop`

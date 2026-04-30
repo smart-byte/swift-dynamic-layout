@@ -177,19 +177,26 @@ public extension Coordinator {
     /// - same volume → move
     /// - cross volume → copy
     /// - destination unknown → fall back to `.generic`
+    /// - no source URL would actually transfer (folder-onto-self,
+    ///   folder-into-own-subtree, move-into-own-folder) → `[]` so the
+    ///   cursor flips to the not-allowed badge.
     static func proposedFileOperation(
         for info: NSDraggingInfo,
         destinationFolder: URL?
     ) -> NSDragOperation {
-        if NSApp.currentEvent?.modifierFlags.contains(.option) ?? false {
-            return .copy
-        }
+        let forceCopy = NSApp.currentEvent?.modifierFlags.contains(.option) ?? false
         guard let destinationFolder,
               let urls = info.draggingPasteboard.readObjects(forClasses: [NSURL.self]) as? [URL],
               let firstSource = urls.first
         else {
-            return .generic
+            return forceCopy ? .copy : .generic
         }
+        guard FileDropPerformer.canTransferAny(
+            urls: urls, into: destinationFolder, forceCopy: forceCopy
+        ) else {
+            return []
+        }
+        if forceCopy { return .copy }
         return FileDropPerformer.sameVolume(firstSource, destinationFolder) ? .move : .copy
     }
 
