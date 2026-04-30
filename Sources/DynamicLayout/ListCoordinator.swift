@@ -252,10 +252,17 @@ public class ListCoordinator: NSObject, NSTableViewDataSource, NSTableViewDelega
             tableView.setDropRow(row, dropOperation: .above)
         }
 
+        // Internal reorder: in-pane move semantics.
         if info.draggingSource as? NSTableView == tableView {
             return .move
         }
-        return .copy
+
+        // External drop: cursor badge must match the actual file-system
+        // operation (move within volume, copy across, ⌥-forced copy).
+        return Coordinator.proposedFileOperation(
+            for: info,
+            destinationFolder: parent.folderURL
+        )
     }
 
     public func tableView(
@@ -292,22 +299,20 @@ public class ListCoordinator: NSObject, NSTableViewDataSource, NSTableViewDelega
             return true
         }
 
-        // External drop — insert from Finder
+        // External (or cross-pane) drop: perform the real file-system
+        // move/copy. Don't touch `layoutItems` — the file watcher (Phase 10)
+        // running on the destination pane picks up the new entries and the
+        // standard `updateNSView` diff animates them in.
         let pasteboard = info.draggingPasteboard
         guard let urls = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL],
-              let url = urls.first
+              !urls.isEmpty,
+              let destinationFolder = parent.folderURL
         else {
             return false
         }
 
-        let targetRow = min(row, parent.layoutItems.count)
-        parent.layoutItems.insert(
-            DynamicLayoutItem(url: url, size: CGSize(width: 100, height: 100)),
-            at: targetRow
-        )
-        lastItemIDs = parent.layoutItems.map(\.id)
-        tableView.insertRows(at: IndexSet(integer: targetRow), withAnimation: .slideDown)
-
+        let forceCopy = NSApp.currentEvent?.modifierFlags.contains(.option) ?? false
+        FileDropPerformer.perform(urls: urls, into: destinationFolder, forceCopy: forceCopy)
         return true
     }
 

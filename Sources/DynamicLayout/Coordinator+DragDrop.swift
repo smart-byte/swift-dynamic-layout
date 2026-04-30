@@ -159,13 +159,38 @@ public extension Coordinator {
             nibless?.hideDropIndicator()
         }
 
+        // Internal reorder: leave the existing in-pane move semantics alone.
         if info.draggingSource as? NSCollectionView == collectionView {
             return .move
-        } else if NSApp.currentEvent?.modifierFlags.contains(.option) ?? false {
+        }
+
+        // External (or cross-pane) drop: cursor badge must match the actual
+        // file-system operation we'll perform in `acceptDrop`.
+        return Self.proposedFileOperation(
+            for: info,
+            destinationFolder: parent.folderURL
+        )
+    }
+
+    /// Mirrors Finder's drop semantics:
+    /// - ⌥ held → forced copy
+    /// - same volume → move
+    /// - cross volume → copy
+    /// - destination unknown → fall back to `.generic`
+    static func proposedFileOperation(
+        for info: NSDraggingInfo,
+        destinationFolder: URL?
+    ) -> NSDragOperation {
+        if NSApp.currentEvent?.modifierFlags.contains(.option) ?? false {
             return .copy
-        } else {
+        }
+        guard let destinationFolder,
+              let urls = info.draggingPasteboard.readObjects(forClasses: [NSURL.self]) as? [URL],
+              let firstSource = urls.first
+        else {
             return .generic
         }
+        return FileDropPerformer.sameVolume(firstSource, destinationFolder) ? .move : .copy
     }
 
     func collectionView(
@@ -251,36 +276,27 @@ public extension Coordinator {
     // MARK: - External File Drop
 
     private func handleExternalDrop(
-        collectionView: NSCollectionView, draggingInfo: NSDraggingInfo
+        collectionView _: NSCollectionView, draggingInfo: NSDraggingInfo
     ) -> Bool {
-        isProcessingDrop = true
         let pasteboard = draggingInfo.draggingPasteboard
         guard let urls = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL],
-              let url = urls.first
+              !urls.isEmpty,
+              let destinationFolder = parent.folderURL
         else {
-            isProcessingDrop = false
+            pendingDropIndex = nil
             isDragging = false
             draggedIndexPaths = []
             return false
         }
-
-        let targetIndex = min(pendingDropIndex ?? 0, parent.layoutItems.count)
         pendingDropIndex = nil
-        parent.layoutItems.insert(
-            DynamicLayoutItem(url: url, size: CGSize(width: 100, height: 100)),
-            at: targetIndex
-        )
-        lastItemCount = parent.layoutItems.count
-        lastItemIDs = parent.layoutItems.map(\.id)
-        updateLayout(collectionView, items: parent.layoutItems)
 
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        collectionView.reloadData()
-        CATransaction.commit()
+        let forceCopy = NSApp.currentEvent?.modifierFlags.contains(.option) ?? false
+        FileDropPerformer.perform(urls: urls, into: destinationFolder, forceCopy: forceCopy)
 
+        // No manual layoutItems mutation: the destination pane's file watcher
+        // (Phase 10) picks up the new entries and animates the diff in. The
+        // source pane's watcher does the same on its side for moves.
         DispatchQueue.main.async { [weak self] in
-            self?.isProcessingDrop = false
             self?.isDragging = false
             self?.draggedIndexPaths = []
         }
