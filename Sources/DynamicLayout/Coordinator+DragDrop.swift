@@ -66,6 +66,7 @@ public extension Coordinator {
         endedAt _: NSPoint, dragOperation operation: NSDragOperation
     ) {
         (collectionView as? NiblessCollectionView)?.hideDropIndicator()
+        (collectionView as? NiblessCollectionView)?.setDropTargetHighlight(false)
         pendingDropIndex = nil
         unpinSourceItems(in: collectionView)
 
@@ -178,15 +179,18 @@ public extension Coordinator {
             proposedDropOperation.pointee = .on
             proposedDropIndexPath.pointee = NSIndexPath(forItem: hitIndexPath.item, inSection: 0)
             nibless?.hideDropIndicator()
+            nibless?.setDropTargetHighlight(false)
             return op
         }
 
-        // External (or cross-pane) drop: cursor badge must match the actual
-        // file-system operation we'll perform in `acceptDrop`.
-        return Self.proposedFileOperation(
+        // External (or cross-pane) whitespace drop: highlight the whole
+        // pane to signal "drop here = into this folder".
+        let op = Self.proposedFileOperation(
             for: info,
             destinationFolder: parent.folderURL
         )
+        nibless?.setDropTargetHighlight(op != [])
+        return op
     }
 
     /// Returns the URL of the layout item at `indexPath` IFF it points to
@@ -237,10 +241,12 @@ public extension Coordinator {
         // gets reset in the ended hook.
         if dragCancelled {
             (collectionView as? NiblessCollectionView)?.hideDropIndicator()
+            (collectionView as? NiblessCollectionView)?.setDropTargetHighlight(false)
             return false
         }
 
         (collectionView as? NiblessCollectionView)?.hideDropIndicator()
+        (collectionView as? NiblessCollectionView)?.setDropTargetHighlight(false)
 
         let isInternal = draggingInfo.draggingSource as? NSCollectionView == collectionView
 

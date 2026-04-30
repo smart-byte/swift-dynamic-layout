@@ -225,11 +225,12 @@ public class ListCoordinator: NSObject, NSTableViewDataSource, NSTableViewDelega
     }
 
     public func tableView(
-        _: NSTableView, draggingSession _: NSDraggingSession,
+        _ tableView: NSTableView, draggingSession _: NSDraggingSession,
         endedAt _: NSPoint, operation _: NSDragOperation
     ) {
         isDragging = false
         draggedRows = []
+        (tableView as? NiblessTableView)?.setDropTargetHighlight(false)
 
         if let monitor = dragKeyMonitor {
             NSEvent.removeMonitor(monitor)
@@ -242,33 +243,65 @@ public class ListCoordinator: NSObject, NSTableViewDataSource, NSTableViewDelega
         _ tableView: NSTableView, validateDrop info: NSDraggingInfo,
         proposedRow row: Int, proposedDropOperation dropOperation: NSTableView.DropOperation
     ) -> NSDragOperation {
+        let nibless = tableView as? NiblessTableView
+
         // ESC pressed during the drag → refuse any drop, regardless of the
         // synthetic mouse-up's landing point.
         if dragCancelled {
+            nibless?.setDropTargetHighlight(false)
             return []
         }
 
-        if dropOperation == .on {
-            tableView.setDropRow(row, dropOperation: .above)
-        }
-
-        // Internal reorder: in-pane move semantics.
+        // Internal reorder: in-pane move semantics with `.above` indicator.
         if info.draggingSource as? NSTableView == tableView {
+            if dropOperation == .on {
+                tableView.setDropRow(row, dropOperation: .above)
+            }
+            nibless?.setDropTargetHighlight(false)
             return .move
         }
 
-        // External drop: cursor badge must match the actual file-system
-        // operation (move within volume, copy across, ⌥-forced copy).
-        return Coordinator.proposedFileOperation(
+        // Folder-row drop target: when the cursor is over a directory row,
+        // route the drop INTO that subfolder. NSTableView paints the row
+        // blue automatically when we keep `.on` with that row index.
+        if row >= 0,
+           row < parent.layoutItems.count,
+           let folderURL = directoryURL(atRow: row),
+           Coordinator.proposedFileOperation(for: info, destinationFolder: folderURL) != []
+        {
+            tableView.setDropRow(row, dropOperation: .on)
+            nibless?.setDropTargetHighlight(false)
+            return Coordinator.proposedFileOperation(
+                for: info, destinationFolder: folderURL
+            )
+        }
+
+        // Whitespace drop into the pane's own folder. -1 + .on suppresses
+        // the row indicator, the pane border is the visual cue.
+        let op = Coordinator.proposedFileOperation(
             for: info,
             destinationFolder: parent.folderURL
         )
+        tableView.setDropRow(-1, dropOperation: .on)
+        nibless?.setDropTargetHighlight(op != [])
+        return op
+    }
+
+    /// Returns the URL at `row` IFF it points to a directory. Used by
+    /// the folder-row drop-target hit test.
+    private func directoryURL(atRow row: Int) -> URL? {
+        guard row >= 0, row < parent.layoutItems.count else { return nil }
+        let url = parent.layoutItems[row].url
+        let values = try? url.resourceValues(forKeys: [.isDirectoryKey])
+        return values?.isDirectory == true ? url : nil
     }
 
     public func tableView(
         _ tableView: NSTableView, acceptDrop info: NSDraggingInfo,
-        row: Int, dropOperation _: NSTableView.DropOperation
+        row: Int, dropOperation: NSTableView.DropOperation
     ) -> Bool {
+        (tableView as? NiblessTableView)?.setDropTargetHighlight(false)
+
         // Race-condition guard: validateDrop usually catches the cancel,
         // but if AppKit raced past it, refuse the drop here too. The flag
         // gets reset in the ended hook.
@@ -305,14 +338,24 @@ public class ListCoordinator: NSObject, NSTableViewDataSource, NSTableViewDelega
         // standard `updateNSView` diff animates them in.
         let pasteboard = info.draggingPasteboard
         guard let urls = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL],
-              !urls.isEmpty,
-              let destinationFolder = parent.folderURL
+              !urls.isEmpty
         else {
             return false
         }
 
+        // Folder-row drop: validateDrop set `.on` with that row's index,
+        // so the destination is the directory at that row, not the pane's
+        // own folder.
+        let destinationFolder: URL? = {
+            if dropOperation == .on, row >= 0 {
+                return directoryURL(atRow: row) ?? parent.folderURL
+            }
+            return parent.folderURL
+        }()
+        guard let destination = destinationFolder else { return false }
+
         let forceCopy = NSApp.currentEvent?.modifierFlags.contains(.option) ?? false
-        FileDropPerformer.perform(urls: urls, into: destinationFolder, forceCopy: forceCopy)
+        FileDropPerformer.perform(urls: urls, into: destination, forceCopy: forceCopy)
         return true
     }
 
@@ -337,52 +380,5 @@ public class ListCoordinator: NSObject, NSTableViewDataSource, NSTableViewDelega
         ) {
             NSApp.postEvent(up, atStart: true)
         }
-    }
-
-    // MARK: - Cell Factories
-
-    private func makeNameCell(identifier: NSUserInterfaceItemIdentifier) -> NSTableCellView {
-        let cell = NSTableCellView()
-        cell.identifier = identifier
-
-        let imageView = NSImageView()
-        imageView.imageScaling = .scaleProportionallyUpOrDown
-        imageView.translatesAutoresizingMaskIntoConstraints = false
-        cell.addSubview(imageView)
-        cell.imageView = imageView
-
-        let textField = NSTextField(labelWithString: "")
-        textField.lineBreakMode = .byTruncatingTail
-        textField.translatesAutoresizingMaskIntoConstraints = false
-        cell.addSubview(textField)
-        cell.textField = textField
-
-        NSLayoutConstraint.activate([
-            imageView.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 2),
-            imageView.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
-            imageView.widthAnchor.constraint(equalToConstant: 24),
-            imageView.heightAnchor.constraint(equalToConstant: 24),
-            textField.leadingAnchor.constraint(equalTo: imageView.trailingAnchor, constant: 6),
-            textField.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -2),
-            textField.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
-        ])
-
-        return cell
-    }
-
-    private func makeTextCell(identifier: NSUserInterfaceItemIdentifier) -> NSTableCellView {
-        let cell = NSTableCellView()
-        cell.identifier = identifier
-        let textField = NSTextField(labelWithString: "")
-        textField.lineBreakMode = .byTruncatingTail
-        textField.translatesAutoresizingMaskIntoConstraints = false
-        cell.addSubview(textField)
-        cell.textField = textField
-        NSLayoutConstraint.activate([
-            textField.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 2),
-            textField.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -2),
-            textField.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
-        ])
-        return cell
     }
 }

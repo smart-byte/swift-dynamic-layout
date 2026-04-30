@@ -82,4 +82,24 @@ class NiblessTableView: NSTableView {
     private var selectedURLs: [URL] {
         quickLookCoordinator?.selectedURLs ?? []
     }
+
+    // MARK: - Pane-Level Drop Target Highlight
+
+    /// Mirror of `NiblessCollectionView.setDropTargetHighlight`. Used while
+    /// a Finder / cross-pane drag hovers over this list pane's whitespace.
+    /// Folder-row highlights come from `setDropRow(_:dropOperation:.on)` —
+    /// NSTableView paints those automatically.
+    func setDropTargetHighlight(_ highlighted: Bool) {
+        guard let scrollView = enclosingScrollView else { return }
+        scrollView.wantsLayer = true
+        let layer = scrollView.layer
+        layer?.borderColor = NSColor.controlAccentColor.cgColor
+        layer?.borderWidth = highlighted ? 3 : 0
+        layer?.cornerRadius = highlighted ? 6 : 0
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        super.draggingExited(sender)
+        setDropTargetHighlight(false)
+    }
 }

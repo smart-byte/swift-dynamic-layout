@@ -181,4 +181,30 @@ class NiblessCollectionView: NSCollectionView {
             }
         }
     }
+
+    // MARK: - Pane-Level Drop Target Highlight
+
+    /// Paints an accent-coloured border around the enclosing scroll view
+    /// while a Finder / cross-pane drag hovers over the pane's whitespace
+    /// (NOT over a folder cell — those use NSCollectionView's built-in
+    /// `.asDropTarget` highlight via `ThumbnailItem.highlightState`).
+    /// Apple has no built-in for "drop into the whole view", so this is
+    /// custom.
+    func setDropTargetHighlight(_ highlighted: Bool) {
+        guard let scrollView = enclosingScrollView else { return }
+        scrollView.wantsLayer = true
+        let layer = scrollView.layer
+        layer?.borderColor = NSColor.controlAccentColor.cgColor
+        layer?.borderWidth = highlighted ? 3 : 0
+        layer?.cornerRadius = highlighted ? 6 : 0
+    }
+
+    /// Cleans up the pane border + insertion line when the cursor leaves
+    /// without a drop. Neither `endedAt` (target side) nor `acceptDrop`
+    /// fires in that case.
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        super.draggingExited(sender)
+        setDropTargetHighlight(false)
+        hideDropIndicator()
+    }
 }
