@@ -113,25 +113,80 @@ public extension Coordinator {
         proposedIndexPath proposedDropIndexPath: AutoreleasingUnsafeMutablePointer<NSIndexPath>,
         dropOperation proposedDropOperation: UnsafeMutablePointer<NSCollectionView.DropOperation>
     ) -> NSDragOperation {
+        let nibless = collectionView as? NiblessCollectionView
+        let point = collectionView.convert(info.draggingLocation, from: nil)
+        let isInternal = info.draggingSource as? NSCollectionView == collectionView
+
         // ESC pressed during the drag → refuse any drop, regardless of the
         // synthetic mouse-up's landing point.
         if dragCancelled {
-            (collectionView as? NiblessCollectionView)?.hideDropIndicator()
+            nibless?.hideDropIndicator()
+            nibless?.setDropTargetHighlight(false)
             return []
         }
 
-        // .before gives NSCollectionView proper zone-based drop detection
-        // (user doesn't need precise cursor placement on the indicator line).
-        proposedDropOperation.pointee = .before
+        // Internal reorder uses the existing insertion-line UI: zone-based
+        // dropIndex + a thin accent line between items. External drags
+        // never see the insertion line — they pick between a folder-cell
+        // highlight (drop INTO directory) or a pane-level border (drop
+        // into the pane's own folder), which matches Finder's affordance.
+        if isInternal {
+            proposedDropOperation.pointee = .before
+            updateInternalReorderIndicator(
+                collectionView: collectionView,
+                point: point,
+                proposedDropIndexPath: proposedDropIndexPath
+            )
+            nibless?.setDropTargetHighlight(false)
+            return .move
+        }
 
-        let point = collectionView.convert(info.draggingLocation, from: nil)
+        // External / cross-pane drag — no insertion line.
+        nibless?.hideDropIndicator()
+
+        // Folder-cell drop target: NSCollectionView applies
+        // `.asDropTarget` to the cell at `proposedDropIndexPath`, which
+        // ThumbnailItem renders as a border overlay.
+        if let hitIndexPath = collectionView.indexPathForItem(at: point),
+           hitIndexPath.item < parent.layoutItems.count,
+           let folderURL = directoryURL(at: hitIndexPath),
+           Self.proposedFileOperation(for: info, destinationFolder: folderURL) != []
+        {
+            let op = Self.proposedFileOperation(for: info, destinationFolder: folderURL)
+            proposedDropOperation.pointee = .on
+            proposedDropIndexPath.pointee = NSIndexPath(forItem: hitIndexPath.item, inSection: 0)
+            nibless?.setDropTargetHighlight(false)
+            return op
+        }
+
+        // Whitespace drop into the pane's own folder. Keep `.before` with
+        // an out-of-range index so NSCollectionView doesn't paint
+        // `.asDropTarget` on a random cell; the pane border is the cue.
+        proposedDropOperation.pointee = .before
+        proposedDropIndexPath.pointee = NSIndexPath(
+            forItem: parent.layoutItems.count, inSection: 0
+        )
+        let op = Self.proposedFileOperation(
+            for: info,
+            destinationFolder: parent.folderURL
+        )
+        nibless?.setDropTargetHighlight(op != [])
+        return op
+    }
+
+    /// Computes the layout-specific drop index + indicator frame for
+    /// internal reorder and updates the custom drop indicator. Factored
+    /// out so the validateDrop branch stays readable.
+    private func updateInternalReorderIndicator(
+        collectionView: NSCollectionView,
+        point: CGPoint,
+        proposedDropIndexPath: AutoreleasingUnsafeMutablePointer<NSIndexPath>
+    ) {
         let layout = collectionView.collectionViewLayout
         let nibless = collectionView as? NiblessCollectionView
 
-        // Each layout calculates its own drop index + indicator frame
         let index: Int
         let indicatorFrame: CGRect
-
         if let vf = layout as? VerticalFlowLayout {
             index = vf.dropIndex(at: point)
             indicatorFrame = vf.indicatorFrame(forInsertionAt: index)
@@ -160,38 +215,6 @@ public extension Coordinator {
         } else {
             nibless?.hideDropIndicator()
         }
-
-        // Internal reorder: leave the existing in-pane move semantics alone.
-        if info.draggingSource as? NSCollectionView == collectionView {
-            return .move
-        }
-
-        // Folder-cell drop target: when the cursor is over a directory
-        // item, route the drop INTO that subfolder. NSCollectionView
-        // automatically applies `.asDropTarget` to the cell at
-        // `proposedDropIndexPath`, which ThumbnailItem renders as a
-        // border overlay (see `highlightState` override there).
-        if let hitIndexPath = collectionView.indexPathForItem(at: point),
-           hitIndexPath.item < parent.layoutItems.count,
-           let folderURL = directoryURL(at: hitIndexPath),
-           Self.proposedFileOperation(for: info, destinationFolder: folderURL) != []
-        {
-            let op = Self.proposedFileOperation(for: info, destinationFolder: folderURL)
-            proposedDropOperation.pointee = .on
-            proposedDropIndexPath.pointee = NSIndexPath(forItem: hitIndexPath.item, inSection: 0)
-            nibless?.hideDropIndicator()
-            nibless?.setDropTargetHighlight(false)
-            return op
-        }
-
-        // External (or cross-pane) whitespace drop: highlight the whole
-        // pane to signal "drop here = into this folder".
-        let op = Self.proposedFileOperation(
-            for: info,
-            destinationFolder: parent.folderURL
-        )
-        nibless?.setDropTargetHighlight(op != [])
-        return op
     }
 
     /// Returns the URL of the layout item at `indexPath` IFF it points to
@@ -267,61 +290,6 @@ public extension Coordinator {
             draggingInfo: draggingInfo,
             destinationOverride: folderTarget
         )
-    }
-
-    // MARK: - Internal Reorder Drop
-
-    private func handleInternalDrop(
-        collectionView: NSCollectionView, draggedIndex: Int
-    ) -> Bool {
-        let targetIndex = min(pendingDropIndex ?? 0, parent.layoutItems.count)
-        let adjustedTarget: Int = if targetIndex > draggedIndex {
-            min(targetIndex - 1, parent.layoutItems.count - 1)
-        } else {
-            targetIndex
-        }
-        pendingDropIndex = nil
-
-        guard adjustedTarget != draggedIndex else {
-            isDragging = false
-            draggedIndexPaths = []
-            return false
-        }
-
-        isProcessingDrop = true
-
-        // Save current layer positions keyed by item ID (before reorder)
-        var oldPositionsByID: [UUID: CGPoint] = [:]
-        var oldBoundsByID: [UUID: CGRect] = [:]
-        for ip in collectionView.indexPathsForVisibleItems() {
-            guard ip.item < parent.layoutItems.count,
-                  let viewItem = collectionView.item(at: ip),
-                  let layer = viewItem.view.layer
-            else { continue }
-            let itemID = parent.layoutItems[ip.item].id
-            oldPositionsByID[itemID] = layer.position
-            oldBoundsByID[itemID] = layer.bounds
-        }
-
-        let movedItem = parent.layoutItems.remove(at: draggedIndex)
-        let safeTarget = min(adjustedTarget, parent.layoutItems.count)
-        parent.layoutItems.insert(movedItem, at: safeTarget)
-
-        lastItemCount = parent.layoutItems.count
-        lastItemIDs = parent.layoutItems.map(\.id)
-        updateLayout(collectionView, items: parent.layoutItems)
-
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        collectionView.reloadData()
-        CATransaction.commit()
-
-        animateReorder(
-            collectionView: collectionView,
-            oldPositions: oldPositionsByID,
-            oldBounds: oldBoundsByID
-        )
-        return true
     }
 
     // MARK: - External File Drop
