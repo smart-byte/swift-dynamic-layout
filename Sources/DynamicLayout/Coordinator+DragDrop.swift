@@ -17,12 +17,17 @@ public extension Coordinator {
     }
 
     func collectionView(
-        _: NSCollectionView, pasteboardWriterForItemAt indexPath: IndexPath
+        _ collectionView: NSCollectionView, pasteboardWriterForItemAt indexPath: IndexPath
     ) -> NSPasteboardWriting? {
         guard indexPath.item < parent.layoutItems.count else { return nil }
         // Reset from any previous drag before accumulating new indices
         draggedIndexPaths = []
         draggedIndexPaths.insert(indexPath)
+        // Pin visibility EARLY — NSCollectionView fires this before it starts
+        // the source-cell fade. Setting the layer's CA actions here blocks
+        // the fade entirely on the very first drag (subsequent drags are
+        // already smooth because the actions persist on the cached layer).
+        pinSourceItemsVisible(in: collectionView, indexPaths: [indexPath])
         return parent.layoutItems[indexPath.item].url as NSURL
     }
 
@@ -35,15 +40,23 @@ public extension Coordinator {
         session.draggingFormation = .default
         session.animatesToStartingPositionsOnCancelOrFail = true
 
-        // Restore original item visibility after NSCollectionView dims them.
-        // Async ensures we run after NSCollectionView's internal handling.
-        DispatchQueue.main.async {
-            for indexPath in indexPaths {
-                guard let item = collectionView.item(at: indexPath) else { continue }
-                item.view.alphaValue = 1.0
-                item.view.isHidden = false
-                item.view.layer?.opacity = 1.0
-            }
+        // Pin the source items' visibility at 1.0 and block Core Animation
+        // actions for opacity/hidden so NSCollectionView's default fade-out
+        // of the source cells (which causes a brief flicker) never takes
+        // effect. Restored in `endedAt`.
+        pinSourceItemsVisible(in: collectionView, indexPaths: indexPaths)
+
+        // AppKit's NSDraggingSession does not honour ESC out of the box for
+        // NSCollectionView/NSTableView sources. Install a local key monitor
+        // that swallows ESC during the drag and triggers a cancel with the
+        // standard bounce-back animation.
+        dragCancelled = false
+        dragKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard event.keyCode == 53 else { return event } // 53 = ESC
+            guard let self else { return event }
+            dragCancelled = true
+            cancelActiveDrag()
+            return nil // swallow ESC
         }
     }
 
@@ -54,12 +67,41 @@ public extension Coordinator {
     ) {
         (collectionView as? NiblessCollectionView)?.hideDropIndicator()
         pendingDropIndex = nil
+        unpinSourceItems(in: collectionView)
 
         // Only reset here if the drag was cancelled (no operation).
         // For successful drops, acceptDrop handles cleanup after processing.
         if operation == [] {
             isDragging = false
             draggedIndexPaths = []
+        }
+
+        if let monitor = dragKeyMonitor {
+            NSEvent.removeMonitor(monitor)
+            dragKeyMonitor = nil
+        }
+        dragCancelled = false
+    }
+
+    private func pinSourceItemsVisible(in collectionView: NSCollectionView, indexPaths: Set<IndexPath>) {
+        for indexPath in indexPaths {
+            guard let item = collectionView.item(at: indexPath) else { continue }
+            // Disable CA actions so subsequent opacity/hidden writes don't
+            // animate. NSNull as an action is the documented opt-out.
+            item.view.layer?.actions = ["opacity": NSNull(), "hidden": NSNull()]
+            item.view.alphaValue = 1.0
+            item.view.isHidden = false
+            item.view.layer?.opacity = 1.0
+        }
+    }
+
+    private func unpinSourceItems(in collectionView: NSCollectionView) {
+        for indexPath in draggedIndexPaths {
+            guard let item = collectionView.item(at: indexPath) else { continue }
+            item.view.layer?.actions = nil
+            item.view.alphaValue = 1.0
+            item.view.isHidden = false
+            item.view.layer?.opacity = 1.0
         }
     }
 
@@ -69,6 +111,13 @@ public extension Coordinator {
         proposedIndexPath proposedDropIndexPath: AutoreleasingUnsafeMutablePointer<NSIndexPath>,
         dropOperation proposedDropOperation: UnsafeMutablePointer<NSCollectionView.DropOperation>
     ) -> NSDragOperation {
+        // ESC pressed during the drag → refuse any drop, regardless of the
+        // synthetic mouse-up's landing point.
+        if dragCancelled {
+            (collectionView as? NiblessCollectionView)?.hideDropIndicator()
+            return []
+        }
+
         // .before gives NSCollectionView proper zone-based drop detection
         // (user doesn't need precise cursor placement on the indicator line).
         proposedDropOperation.pointee = .before
@@ -125,6 +174,14 @@ public extension Coordinator {
         indexPath _: IndexPath,
         dropOperation _: NSCollectionView.DropOperation
     ) -> Bool {
+        // Race-condition guard: validateDrop usually catches the cancel,
+        // but if AppKit raced past it, refuse the drop here too. The flag
+        // gets reset in the ended hook.
+        if dragCancelled {
+            (collectionView as? NiblessCollectionView)?.hideDropIndicator()
+            return false
+        }
+
         (collectionView as? NiblessCollectionView)?.hideDropIndicator()
 
         let isInternal = draggingInfo.draggingSource as? NSCollectionView == collectionView
@@ -275,6 +332,29 @@ public extension Coordinator {
                 self.isDragging = false
                 self.draggedIndexPaths = []
             }
+        }
+    }
+
+    // MARK: - Cancel Active Drag
+
+    /// Synthesizes a mouse-up event far off-screen so the active dragging
+    /// session ends as cancelled (no valid drop target). NSDraggingSession
+    /// picks up the event from the queue and runs its bounce-back animation
+    /// thanks to `animatesToStartingPositionsOnCancelOrFail = true`.
+    private func cancelActiveDrag() {
+        let offScreen = NSPoint(x: -10000, y: -10000)
+        if let up = NSEvent.mouseEvent(
+            with: .leftMouseUp,
+            location: offScreen,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 0
+        ) {
+            NSApp.postEvent(up, atStart: true)
         }
     }
 

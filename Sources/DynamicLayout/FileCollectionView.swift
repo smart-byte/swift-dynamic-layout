@@ -272,6 +272,8 @@ public class Coordinator: NSObject, NSCollectionViewDataSource, NSCollectionView
     var isDragging = false
     var isProcessingDrop = false
     var pendingDropIndex: Int?
+    var dragKeyMonitor: Any?
+    var dragCancelled = false
 
     // Scroll-position cache: folder URL → first visible item index
     static var scrollCache: [URL: Int] = [:]

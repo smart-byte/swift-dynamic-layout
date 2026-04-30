@@ -22,6 +22,8 @@ public class ListCoordinator: NSObject, NSTableViewDataSource, NSTableViewDelega
     var lastLastID: UUID?
     var draggedRows: IndexSet = []
     var isDragging = false
+    var dragKeyMonitor: Any?
+    var dragCancelled = false
 
     private static let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -186,11 +188,40 @@ public class ListCoordinator: NSObject, NSTableViewDataSource, NSTableViewDelega
     }
 
     public func tableView(
-        _: NSTableView, draggingSession _: NSDraggingSession,
+        _ tableView: NSTableView, draggingSession session: NSDraggingSession,
         willBeginAt _: NSPoint, forRowIndexes rowIndexes: IndexSet
     ) {
         isDragging = true
         draggedRows = rowIndexes
+
+        // List view always uses the .compact drag-image style at source.
+        // The destination overrides this in its own validateDrop.
+        let style = LayoutMode.list.dragImageStyle
+        session.enumerateDraggingItems(
+            options: [],
+            for: tableView,
+            classes: [NSURL.self],
+            searchOptions: [:]
+        ) { item, _, _ in
+            guard let url = item.item as? URL else { return }
+            let urlValue = url
+            item.imageComponentsProvider = {
+                DragImageComposer.compose(for: urlValue, style: style)
+            }
+        }
+
+        // AppKit's NSDraggingSession does not honour ESC out of the box for
+        // NSCollectionView/NSTableView sources. Install a local key monitor
+        // that swallows ESC during the drag and triggers a cancel with the
+        // standard bounce-back animation.
+        dragCancelled = false
+        dragKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard event.keyCode == 53 else { return event } // 53 = ESC
+            guard let self else { return event }
+            dragCancelled = true
+            cancelActiveDrag()
+            return nil // swallow ESC
+        }
     }
 
     public func tableView(
@@ -199,15 +230,28 @@ public class ListCoordinator: NSObject, NSTableViewDataSource, NSTableViewDelega
     ) {
         isDragging = false
         draggedRows = []
+
+        if let monitor = dragKeyMonitor {
+            NSEvent.removeMonitor(monitor)
+            dragKeyMonitor = nil
+        }
+        dragCancelled = false
     }
 
     public func tableView(
         _ tableView: NSTableView, validateDrop info: NSDraggingInfo,
         proposedRow row: Int, proposedDropOperation dropOperation: NSTableView.DropOperation
     ) -> NSDragOperation {
+        // ESC pressed during the drag → refuse any drop, regardless of the
+        // synthetic mouse-up's landing point.
+        if dragCancelled {
+            return []
+        }
+
         if dropOperation == .on {
             tableView.setDropRow(row, dropOperation: .above)
         }
+
         if info.draggingSource as? NSTableView == tableView {
             return .move
         }
@@ -218,6 +262,13 @@ public class ListCoordinator: NSObject, NSTableViewDataSource, NSTableViewDelega
         _ tableView: NSTableView, acceptDrop info: NSDraggingInfo,
         row: Int, dropOperation _: NSTableView.DropOperation
     ) -> Bool {
+        // Race-condition guard: validateDrop usually catches the cancel,
+        // but if AppKit raced past it, refuse the drop here too. The flag
+        // gets reset in the ended hook.
+        if dragCancelled {
+            return false
+        }
+
         let isInternal = info.draggingSource as? NSTableView == tableView
 
         if isInternal, let draggedRow = draggedRows.first {
@@ -258,6 +309,29 @@ public class ListCoordinator: NSObject, NSTableViewDataSource, NSTableViewDelega
         tableView.insertRows(at: IndexSet(integer: targetRow), withAnimation: .slideDown)
 
         return true
+    }
+
+    // MARK: - Cancel Active Drag
+
+    /// Synthesizes a mouse-up event far off-screen so the active dragging
+    /// session ends as cancelled (no valid drop target). NSDraggingSession
+    /// picks up the event from the queue and runs its bounce-back animation
+    /// thanks to `animatesToStartingPositionsOnCancelOrFail = true`.
+    private func cancelActiveDrag() {
+        let offScreen = NSPoint(x: -10000, y: -10000)
+        if let up = NSEvent.mouseEvent(
+            with: .leftMouseUp,
+            location: offScreen,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 0
+        ) {
+            NSApp.postEvent(up, atStart: true)
+        }
     }
 
     // MARK: - Cell Factories
