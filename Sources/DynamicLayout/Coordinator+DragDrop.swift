@@ -63,19 +63,20 @@ public extension Coordinator {
     func collectionView(
         _ collectionView: NSCollectionView,
         draggingSession _: NSDraggingSession,
-        endedAt _: NSPoint, dragOperation operation: NSDragOperation
+        endedAt _: NSPoint, dragOperation _: NSDragOperation
     ) {
         (collectionView as? NiblessCollectionView)?.hideDropIndicator()
         (collectionView as? NiblessCollectionView)?.setDropTargetHighlight(false)
         pendingDropIndex = nil
         unpinSourceItems(in: collectionView)
 
-        // Only reset here if the drag was cancelled (no operation).
-        // For successful drops, acceptDrop handles cleanup after processing.
-        if operation == [] {
-            isDragging = false
-            draggedIndexPaths = []
-        }
+        // Always reset — cross-pane/cross-app drops run acceptDrop on
+        // a different coordinator, so without this the source pane's
+        // updateNSView stays guarded and the FolderWatcher's post-move
+        // refresh never lands. Same-pane reorder protects its FLIP
+        // animation via `isProcessingDrop`, which we leave intact.
+        isDragging = false
+        draggedIndexPaths = []
 
         if let monitor = dragKeyMonitor {
             NSEvent.removeMonitor(monitor)
