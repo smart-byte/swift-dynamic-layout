@@ -164,12 +164,38 @@ public extension Coordinator {
             return .move
         }
 
+        // Folder-cell drop target: when the cursor is over a directory
+        // item, route the drop INTO that subfolder. NSCollectionView
+        // automatically applies `.asDropTarget` to the cell at
+        // `proposedDropIndexPath`, which ThumbnailItem renders as a
+        // border overlay (see `highlightState` override there).
+        if let hitIndexPath = collectionView.indexPathForItem(at: point),
+           hitIndexPath.item < parent.layoutItems.count,
+           let folderURL = directoryURL(at: hitIndexPath),
+           Self.proposedFileOperation(for: info, destinationFolder: folderURL) != []
+        {
+            let op = Self.proposedFileOperation(for: info, destinationFolder: folderURL)
+            proposedDropOperation.pointee = .on
+            proposedDropIndexPath.pointee = NSIndexPath(forItem: hitIndexPath.item, inSection: 0)
+            nibless?.hideDropIndicator()
+            return op
+        }
+
         // External (or cross-pane) drop: cursor badge must match the actual
         // file-system operation we'll perform in `acceptDrop`.
         return Self.proposedFileOperation(
             for: info,
             destinationFolder: parent.folderURL
         )
+    }
+
+    /// Returns the URL of the layout item at `indexPath` IFF it points to
+    /// a directory. Used by the folder-cell drop-target hit test.
+    private func directoryURL(at indexPath: IndexPath) -> URL? {
+        guard indexPath.item < parent.layoutItems.count else { return nil }
+        let url = parent.layoutItems[indexPath.item].url
+        let values = try? url.resourceValues(forKeys: [.isDirectoryKey])
+        return values?.isDirectory == true ? url : nil
     }
 
     /// Mirrors Finder's drop semantics:
@@ -203,8 +229,8 @@ public extension Coordinator {
     func collectionView(
         _ collectionView: NSCollectionView,
         acceptDrop draggingInfo: NSDraggingInfo,
-        indexPath _: IndexPath,
-        dropOperation _: NSCollectionView.DropOperation
+        indexPath: IndexPath,
+        dropOperation: NSCollectionView.DropOperation
     ) -> Bool {
         // Race-condition guard: validateDrop usually catches the cancel,
         // but if AppKit raced past it, refuse the drop here too. The flag
@@ -222,7 +248,18 @@ public extension Coordinator {
             return handleInternalDrop(collectionView: collectionView, draggedIndex: draggedIndex)
         }
 
-        return handleExternalDrop(collectionView: collectionView, draggingInfo: draggingInfo)
+        // Folder-cell drop: validateDrop set `.on` with that cell's
+        // indexPath, so the drop target is the directory at that index
+        // rather than the pane's own folder.
+        let folderTarget: URL? = {
+            guard dropOperation == .on else { return nil }
+            return directoryURL(at: indexPath)
+        }()
+        return handleExternalDrop(
+            collectionView: collectionView,
+            draggingInfo: draggingInfo,
+            destinationOverride: folderTarget
+        )
     }
 
     // MARK: - Internal Reorder Drop
@@ -283,12 +320,14 @@ public extension Coordinator {
     // MARK: - External File Drop
 
     private func handleExternalDrop(
-        collectionView _: NSCollectionView, draggingInfo: NSDraggingInfo
+        collectionView _: NSCollectionView,
+        draggingInfo: NSDraggingInfo,
+        destinationOverride: URL? = nil
     ) -> Bool {
         let pasteboard = draggingInfo.draggingPasteboard
         guard let urls = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL],
               !urls.isEmpty,
-              let destinationFolder = parent.folderURL
+              let destinationFolder = destinationOverride ?? parent.folderURL
         else {
             pendingDropIndex = nil
             isDragging = false
@@ -308,54 +347,6 @@ public extension Coordinator {
             self?.draggedIndexPaths = []
         }
         return true
-    }
-
-    // MARK: - Reorder Animation
-
-    private func animateReorder(
-        collectionView: NSCollectionView,
-        oldPositions: [UUID: CGPoint],
-        oldBounds: [UUID: CGRect]
-    ) {
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            let duration = 0.25
-            let timing = CAMediaTimingFunction(name: .easeInEaseOut)
-
-            for ip in collectionView.indexPathsForVisibleItems() {
-                guard ip.item < parent.layoutItems.count,
-                      let viewItem = collectionView.item(at: ip),
-                      let layer = viewItem.view.layer
-                else { continue }
-
-                let itemID = parent.layoutItems[ip.item].id
-                guard let oldPos = oldPositions[itemID] else { continue }
-
-                if oldPos != layer.position {
-                    let anim = CABasicAnimation(keyPath: "position")
-                    anim.fromValue = oldPos
-                    anim.duration = duration
-                    anim.timingFunction = timing
-                    layer.add(anim, forKey: "reorderPos")
-                }
-
-                if let oldFrame = oldBounds[itemID],
-                   oldFrame.size != layer.bounds.size
-                {
-                    let anim = CABasicAnimation(keyPath: "bounds")
-                    anim.fromValue = oldFrame
-                    anim.duration = duration
-                    anim.timingFunction = timing
-                    layer.add(anim, forKey: "reorderBounds")
-                }
-            }
-
-            DispatchQueue.main.asyncAfter(deadline: .now() + duration + 0.05) {
-                self.isProcessingDrop = false
-                self.isDragging = false
-                self.draggedIndexPaths = []
-            }
-        }
     }
 
     // MARK: - Cancel Active Drag

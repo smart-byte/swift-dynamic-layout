@@ -17,6 +17,25 @@ public class ThumbnailItem: NSCollectionViewItem {
     private var currentURL: URL?
     private var pendingImage: NSImage?
 
+    /// Overlay for the `.asDropTarget` highlight state. Lazy so cells that
+    /// never become drop targets pay no allocation cost. Insets so the
+    /// border sits inside the cell rather than slicing the thumbnail's
+    /// edge.
+    private lazy var dropTargetOverlay: NSView = {
+        let overlay = NSView()
+        overlay.translatesAutoresizingMaskIntoConstraints = false
+        overlay.wantsLayer = true
+        overlay.layer?.borderColor = NSColor.controlAccentColor.cgColor
+        overlay.layer?.borderWidth = 3
+        overlay.layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.10).cgColor
+        overlay.layer?.shadowColor = NSColor.controlAccentColor.withAlphaComponent(0.35).cgColor
+        overlay.layer?.shadowOpacity = 1
+        overlay.layer?.shadowRadius = 10
+        overlay.layer?.shadowOffset = .zero
+        overlay.isHidden = true
+        return overlay
+    }()
+
     override init(nibName _: NSNib.Name?, bundle _: Bundle?) {
         super.init(nibName: nil, bundle: nil)
     }
@@ -32,12 +51,23 @@ public class ThumbnailItem: NSCollectionViewItem {
         }
     }
 
+    /// NSCollectionView calls this automatically when the item becomes a
+    /// drop target (validateDrop returned `.on` with this item's
+    /// indexPath). We layer the visual on top of the cell so the
+    /// existing selection styling stays untouched.
+    override public var highlightState: NSCollectionViewItem.HighlightState {
+        didSet {
+            dropTargetOverlay.isHidden = highlightState != .asDropTarget
+        }
+    }
+
     override public func prepareForReuse() {
         super.prepareForReuse()
         currentURL = nil
         borderImageView?.image = nil
         plainImageView?.image = nil
         isSelected = false
+        highlightState = .none
         view.layer?.transform = CATransform3DIdentity
     }
 
@@ -77,6 +107,14 @@ public class ThumbnailItem: NSCollectionViewItem {
         case .borderless:
             setupBorderlessStyle()
         }
+
+        view.addSubview(dropTargetOverlay)
+        NSLayoutConstraint.activate([
+            dropTargetOverlay.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 6),
+            dropTargetOverlay.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -6),
+            dropTargetOverlay.topAnchor.constraint(equalTo: view.topAnchor, constant: 6),
+            dropTargetOverlay.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -6),
+        ])
     }
 
     private func setupPhotoFrameStyle() {
@@ -135,6 +173,15 @@ public class ThumbnailItem: NSCollectionViewItem {
         case .borderless:
             view.layer?.cornerRadius = 0
         }
+        // Keep the drop-target overlay's corner radius in sync; clamp so
+        // very small thumbnails don't end up with sharp corners while the
+        // surrounding cell is rounded.
+        let overlayRadius: CGFloat = switch itemStyle {
+        case .photoFrame: max(12, view.bounds.width * 0.1)
+        case .contactSheet: max(8, view.bounds.width * 0.02)
+        case .borderless: 10
+        }
+        dropTargetOverlay.layer?.cornerRadius = overlayRadius
     }
 
     // MARK: - Configure

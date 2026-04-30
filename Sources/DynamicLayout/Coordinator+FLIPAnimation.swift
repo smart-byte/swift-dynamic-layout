@@ -63,4 +63,54 @@ extension Coordinator {
             }
         }
     }
+
+    /// Variant used by `handleInternalDrop`: works off CALayer position
+    /// + bounds snapshots (taken before `reloadData()`) instead of view
+    /// frames (which `reloadData` resets). Async-after-completion clears
+    /// the drag/processing state so the next `updateNSView` can run.
+    func animateReorder(
+        collectionView: NSCollectionView,
+        oldPositions: [UUID: CGPoint],
+        oldBounds: [UUID: CGRect]
+    ) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            let duration = 0.25
+            let timing = CAMediaTimingFunction(name: .easeInEaseOut)
+
+            for ip in collectionView.indexPathsForVisibleItems() {
+                guard ip.item < parent.layoutItems.count,
+                      let viewItem = collectionView.item(at: ip),
+                      let layer = viewItem.view.layer
+                else { continue }
+
+                let itemID = parent.layoutItems[ip.item].id
+                guard let oldPos = oldPositions[itemID] else { continue }
+
+                if oldPos != layer.position {
+                    let anim = CABasicAnimation(keyPath: "position")
+                    anim.fromValue = oldPos
+                    anim.duration = duration
+                    anim.timingFunction = timing
+                    layer.add(anim, forKey: "reorderPos")
+                }
+
+                if let oldFrame = oldBounds[itemID],
+                   oldFrame.size != layer.bounds.size
+                {
+                    let anim = CABasicAnimation(keyPath: "bounds")
+                    anim.fromValue = oldFrame
+                    anim.duration = duration
+                    anim.timingFunction = timing
+                    layer.add(anim, forKey: "reorderBounds")
+                }
+            }
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + duration + 0.05) {
+                self.isProcessingDrop = false
+                self.isDragging = false
+                self.draggedIndexPaths = []
+            }
+        }
+    }
 }
