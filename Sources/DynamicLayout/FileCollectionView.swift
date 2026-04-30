@@ -109,70 +109,15 @@ public struct FileCollectionView: NSViewRepresentable {
         coordinator.currentFolderURL = folderURL
 
         if layoutChanged {
-            // FLIP morph: capture old positions → swap layout → animate old→new
-            let oldFrames = coordinator.captureVisibleItemFrames(collectionView)
-            let newLayout = createLayout(for: layoutMode, items: layoutItems, spacing: itemSpacing, columns: columns, targetSize: targetSize)
-            coordinator.lastLayoutMode = layoutMode
-            coordinator.lastItemCount = layoutItems.count
-            coordinator.lastItemIDs = layoutItems.map(\.id)
-
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            collectionView.collectionViewLayout = newLayout
-            collectionView.reloadData()
-            collectionView.layoutSubtreeIfNeeded()
-            CATransaction.commit()
-
-            coordinator.animateFromOldFrames(oldFrames, in: collectionView, duration: 0.3)
+            applyLayoutChange(collectionView: collectionView, coordinator: coordinator)
         } else if itemsChanged {
-            coordinator.lastItemCount = layoutItems.count
-            coordinator.lastItemIDs = layoutItems.map(\.id)
-            updateLayoutItems(collectionView.collectionViewLayout, items: layoutItems)
-
-            if folderChanged {
-                // Folder switch — crossfade since all items are new
-                NSAnimationContext.runAnimationGroup { ctx in
-                    ctx.duration = 0.12
-                    collectionView.animator().alphaValue = 0
-                } completionHandler: {
-                    collectionView.reloadData()
-                    // Restore scroll position
-                    if let url = folderURL,
-                       let savedIndex = Coordinator.scrollCache[url],
-                       savedIndex > 0, savedIndex < layoutItems.count
-                    {
-                        let ip = IndexPath(item: savedIndex, section: 0)
-                        collectionView.scrollToItems(at: [ip], scrollPosition: [.top, .left])
-                    }
-                    NSAnimationContext.runAnimationGroup { ctx in
-                        ctx.duration = 0.12
-                        collectionView.animator().alphaValue = 1
-                    }
-                }
-            } else {
-                // Same folder — items changed (sort, add, remove)
-                let oldFrames = coordinator.captureVisibleItemFrames(collectionView)
-
-                CATransaction.begin()
-                CATransaction.setDisableActions(true)
-                collectionView.reloadData()
-                collectionView.layoutSubtreeIfNeeded()
-                CATransaction.commit()
-
-                coordinator.animateFromOldFrames(oldFrames, in: collectionView)
-            }
+            applyItemsChange(
+                collectionView: collectionView,
+                coordinator: coordinator,
+                folderChanged: folderChanged
+            )
         } else if spacingChanged || columnsChanged || targetSizeChanged {
-            // FLIP animation for smooth property transitions
-            let oldFrames = coordinator.captureVisibleItemFrames(collectionView)
-            updateLayoutProperties(collectionView.collectionViewLayout, spacing: itemSpacing, columns: columns, targetSize: targetSize)
-
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            collectionView.collectionViewLayout?.invalidateLayout()
-            collectionView.layoutSubtreeIfNeeded()
-            CATransaction.commit()
-
-            coordinator.animateFromOldFrames(oldFrames, in: collectionView, duration: 0.2)
+            applyPropertyChange(collectionView: collectionView, coordinator: coordinator)
         }
 
         coordinator.lastSpacing = itemSpacing
@@ -185,78 +130,127 @@ public struct FileCollectionView: NSViewRepresentable {
         }
     }
 
+    // MARK: - Update Helpers
+
+    private func applyLayoutChange(collectionView: NSCollectionView, coordinator: Coordinator) {
+        // FLIP morph: capture old positions → swap layout → animate old→new
+        let oldFrames = coordinator.captureVisibleItemFrames(collectionView)
+        let newLayout = createLayout(for: layoutMode, items: layoutItems, spacing: itemSpacing, columns: columns, targetSize: targetSize)
+        coordinator.lastLayoutMode = layoutMode
+        coordinator.lastItemCount = layoutItems.count
+        coordinator.lastItemIDs = layoutItems.map(\.id)
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        collectionView.collectionViewLayout = newLayout
+        collectionView.reloadData()
+        collectionView.layoutSubtreeIfNeeded()
+        CATransaction.commit()
+
+        coordinator.animateFromOldFrames(oldFrames, in: collectionView, duration: 0.3)
+    }
+
+    private func applyItemsChange(
+        collectionView: NSCollectionView,
+        coordinator: Coordinator,
+        folderChanged: Bool
+    ) {
+        let oldIDs = coordinator.lastItemIDs
+        let newIDs = layoutItems.map(\.id)
+        coordinator.lastItemCount = layoutItems.count
+        coordinator.lastItemIDs = newIDs
+        updateLayoutItems(collectionView.collectionViewLayout, items: layoutItems)
+
+        if folderChanged {
+            crossfadeReload(collectionView: collectionView)
+        } else if oldIDs.isEmpty {
+            // First load into this folder (no previous IDs). Skip the
+            // remove+insert animation — there's nothing to fade out
+            // and 100 simultaneous fade-ins look noisy.
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            collectionView.reloadData()
+            collectionView.layoutSubtreeIfNeeded()
+            CATransaction.commit()
+        } else {
+            animateDiff(collectionView: collectionView, coordinator: coordinator, oldIDs: oldIDs, newIDs: newIDs)
+        }
+    }
+
+    private func crossfadeReload(collectionView: NSCollectionView) {
+        let folderURL = folderURL
+        let layoutItems = layoutItems
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.12
+            collectionView.animator().alphaValue = 0
+        } completionHandler: {
+            collectionView.reloadData()
+            if let url = folderURL,
+               let savedIndex = Coordinator.scrollCache[url],
+               savedIndex > 0, savedIndex < layoutItems.count
+            {
+                let ip = IndexPath(item: savedIndex, section: 0)
+                collectionView.scrollToItems(at: [ip], scrollPosition: [.top, .left])
+            }
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.12
+                collectionView.animator().alphaValue = 1
+            }
+        }
+    }
+
+    /// Diff old vs new UUIDs and animate the remove+insert pairs. Pure
+    /// reorders (same UUID set, different positions) fall back to the FLIP
+    /// morph so existing items slide rather than flashing.
+    private func animateDiff(
+        collectionView: NSCollectionView,
+        coordinator: Coordinator,
+        oldIDs: [UUID],
+        newIDs: [UUID]
+    ) {
+        let newIDSet = Set(newIDs)
+        let oldIDSet = Set(oldIDs)
+        var removedIndexPaths: Set<IndexPath> = []
+        var insertedIndexPaths: Set<IndexPath> = []
+        for (idx, id) in oldIDs.enumerated() where !newIDSet.contains(id) {
+            removedIndexPaths.insert(IndexPath(item: idx, section: 0))
+        }
+        for (idx, id) in newIDs.enumerated() where !oldIDSet.contains(id) {
+            insertedIndexPaths.insert(IndexPath(item: idx, section: 0))
+        }
+
+        if removedIndexPaths.isEmpty, insertedIndexPaths.isEmpty {
+            let oldFrames = coordinator.captureVisibleItemFrames(collectionView)
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            collectionView.reloadData()
+            collectionView.layoutSubtreeIfNeeded()
+            CATransaction.commit()
+            coordinator.animateFromOldFrames(oldFrames, in: collectionView)
+        } else {
+            collectionView.animator().performBatchUpdates({
+                collectionView.deleteItems(at: removedIndexPaths)
+                collectionView.insertItems(at: insertedIndexPaths)
+            }, completionHandler: nil)
+        }
+    }
+
+    private func applyPropertyChange(collectionView: NSCollectionView, coordinator: Coordinator) {
+        // FLIP animation for smooth property transitions
+        let oldFrames = coordinator.captureVisibleItemFrames(collectionView)
+        updateLayoutProperties(collectionView.collectionViewLayout, spacing: itemSpacing, columns: columns, targetSize: targetSize)
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        collectionView.collectionViewLayout?.invalidateLayout()
+        collectionView.layoutSubtreeIfNeeded()
+        CATransaction.commit()
+
+        coordinator.animateFromOldFrames(oldFrames, in: collectionView, duration: 0.2)
+    }
+
     public func makeCoordinator() -> Coordinator {
         Coordinator(self)
-    }
-
-    // MARK: - Layout Factory
-
-    private func createLayout(
-        for mode: LayoutMode,
-        items: [DynamicLayoutItem],
-        spacing: CGFloat,
-        columns: Int,
-        targetSize: CGFloat = 200
-    ) -> NSCollectionViewLayout {
-        let insets = NSEdgeInsets(top: 20, left: 20, bottom: 20, right: 20)
-
-        switch mode {
-        case .verticalFlow, .list:
-            let layout = VerticalFlowLayout()
-            layout.sectionInset = insets
-            layout.items = items
-            layout.spacingPercentage = spacing
-            return layout
-
-        case .waterfall:
-            let layout = WaterfallLayout()
-            layout.sectionInset = insets
-            layout.items = items
-            layout.columns = columns
-            layout.spacingPercentage = spacing
-            return layout
-
-        case .horizontalFlow:
-            let layout = HorizontalFlowLayout()
-            layout.items = items
-            layout.sectionInset = insets
-            layout.minimumInteritemSpacing = 10
-            layout.minimumLineSpacing = 10
-            return layout
-
-        case .justified:
-            let layout = JustifiedLayout()
-            layout.items = items
-            layout.sectionInset = insets
-            layout.spacing = 4
-            layout.targetRowHeight = targetSize
-            return layout
-
-        case .horizontalJustified:
-            let layout = HorizontalJustifiedLayout()
-            layout.items = items
-            layout.sectionInset = insets
-            layout.spacing = 4
-            layout.targetColumnWidth = targetSize
-            return layout
-        }
-    }
-
-    private func updateLayoutItems(_ layout: NSCollectionViewLayout?, items: [DynamicLayoutItem]) {
-        (layout as? LayoutItemsProvider)?.setItems(items)
-    }
-
-    private func updateLayoutProperties(_ layout: NSCollectionViewLayout?, spacing: CGFloat, columns: Int, targetSize: CGFloat = 200) {
-        if let layout = layout as? VerticalFlowLayout {
-            layout.spacingPercentage = spacing
-        } else if let layout = layout as? WaterfallLayout {
-            layout.spacingPercentage = spacing
-            layout.columns = columns
-        } else if let layout = layout as? JustifiedLayout {
-            layout.targetRowHeight = targetSize
-        } else if let layout = layout as? HorizontalJustifiedLayout {
-            layout.targetColumnWidth = targetSize
-        }
     }
 }
 

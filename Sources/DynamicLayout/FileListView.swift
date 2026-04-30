@@ -111,13 +111,62 @@ public struct FileListView: NSViewRepresentable {
         guard countChanged || endpointsChanged else { return }
 
         let newIDs = layoutItems.map(\.id)
-        if coordinator.lastItemIDs != newIDs {
+        guard coordinator.lastItemIDs != newIDs else { return }
+
+        let oldIDs = coordinator.lastItemIDs
+        let tableView = coordinator.tableView
+
+        if oldIDs.isEmpty || tableView == nil {
+            // First load (or no table yet) — a 100-row fade-in looks worse
+            // than just appearing. Use a plain reloadData and skip the
+            // animation pass.
             coordinator.lastItemIDs = newIDs
             coordinator.lastItemCount = layoutItems.count
             coordinator.lastFirstID = layoutItems.first?.id
             coordinator.lastLastID = layoutItems.last?.id
-            coordinator.tableView?.reloadData()
+            tableView?.reloadData()
+            return
         }
+
+        // Compute removed + inserted indices via UUID set membership.
+        // Items that simply moved (same UUID, different index) are left
+        // alone — alphabetic sort changes still surface as remove+insert
+        // pairs from the diff, which animate fine via .effectFade.
+        let newIDSet = Set(newIDs)
+        let oldIDSet = Set(oldIDs)
+        var removedIndices: [Int] = []
+        var insertedIndices: [Int] = []
+        for (idx, id) in oldIDs.enumerated() where !newIDSet.contains(id) {
+            removedIndices.append(idx)
+        }
+        for (idx, id) in newIDs.enumerated() where !oldIDSet.contains(id) {
+            insertedIndices.append(idx)
+        }
+
+        if removedIndices.isEmpty, insertedIndices.isEmpty {
+            // Pure reorder of the same set of UUIDs — no add/remove diff
+            // to animate. A reloadData would visually flash the whole
+            // table; instead update the cached IDs and let
+            // `tableViewSelectionDidChange` etc. handle row content.
+            coordinator.lastItemIDs = newIDs
+            coordinator.lastItemCount = layoutItems.count
+            coordinator.lastFirstID = layoutItems.first?.id
+            coordinator.lastLastID = layoutItems.last?.id
+            tableView?.reloadData()
+            return
+        }
+
+        if let tableView {
+            tableView.beginUpdates()
+            tableView.removeRows(at: IndexSet(removedIndices), withAnimation: .effectFade)
+            tableView.insertRows(at: IndexSet(insertedIndices), withAnimation: .effectFade)
+            tableView.endUpdates()
+        }
+
+        coordinator.lastItemIDs = newIDs
+        coordinator.lastItemCount = layoutItems.count
+        coordinator.lastFirstID = layoutItems.first?.id
+        coordinator.lastLastID = layoutItems.last?.id
     }
 
     public func makeCoordinator() -> ListCoordinator {
