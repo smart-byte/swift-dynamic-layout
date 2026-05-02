@@ -99,16 +99,12 @@ public struct FileListView: NSViewRepresentable {
         // Each body re-render hands us a fresh handler instance — sync it.
         (coordinator.tableView as? NiblessTableView)?.actionHandler = actionHandler
 
+        syncSelection(with: coordinator)
+
         if coordinator.isDragging { return }
 
-        // Cheap pre-check before the full ID diff: if count is the same
-        // AND first/last IDs match, the array hasn't changed (assuming
-        // stable IDs, which our pipeline guarantees). Skips the O(N)
-        // `map(\.id)` allocation per resize frame at e.g. 1000 items.
-        let countChanged = coordinator.lastItemCount != layoutItems.count
-        let endpointsChanged = coordinator.lastFirstID != layoutItems.first?.id
-            || coordinator.lastLastID != layoutItems.last?.id
-        guard countChanged || endpointsChanged else { return }
+        let itemsSnapshot = DynamicLayoutItemsSnapshot(items: layoutItems)
+        guard coordinator.lastItemsSnapshot != itemsSnapshot else { return }
 
         let newIDs = layoutItems.map(\.id)
         guard coordinator.lastItemIDs != newIDs else { return }
@@ -121,9 +117,7 @@ public struct FileListView: NSViewRepresentable {
             // than just appearing. Use a plain reloadData and skip the
             // animation pass.
             coordinator.lastItemIDs = newIDs
-            coordinator.lastItemCount = layoutItems.count
-            coordinator.lastFirstID = layoutItems.first?.id
-            coordinator.lastLastID = layoutItems.last?.id
+            coordinator.lastItemsSnapshot = itemsSnapshot
             tableView?.reloadData()
             return
         }
@@ -149,9 +143,7 @@ public struct FileListView: NSViewRepresentable {
             // table; instead update the cached IDs and let
             // `tableViewSelectionDidChange` etc. handle row content.
             coordinator.lastItemIDs = newIDs
-            coordinator.lastItemCount = layoutItems.count
-            coordinator.lastFirstID = layoutItems.first?.id
-            coordinator.lastLastID = layoutItems.last?.id
+            coordinator.lastItemsSnapshot = itemsSnapshot
             tableView?.reloadData()
             return
         }
@@ -164,9 +156,19 @@ public struct FileListView: NSViewRepresentable {
         }
 
         coordinator.lastItemIDs = newIDs
-        coordinator.lastItemCount = layoutItems.count
-        coordinator.lastFirstID = layoutItems.first?.id
-        coordinator.lastLastID = layoutItems.last?.id
+        coordinator.lastItemsSnapshot = itemsSnapshot
+    }
+
+    private func syncSelection(with coordinator: ListCoordinator) {
+        let validSelection = sanitizedSelection(selection, itemCount: layoutItems.count)
+        if validSelection != selection {
+            selection = validSelection
+        }
+        guard let tableView = coordinator.tableView else { return }
+        let selectedRows = IndexSet(validSelection.map(\.item))
+        if tableView.selectedRowIndexes != selectedRows {
+            tableView.selectRowIndexes(selectedRows, byExtendingSelection: false)
+        }
     }
 
     public func makeCoordinator() -> ListCoordinator {

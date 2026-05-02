@@ -15,15 +15,10 @@ public class ListCoordinator: NSObject, NSTableViewDataSource, NSTableViewDelega
     weak var tableView: NSTableView?
     var actionHandler: ItemActionHandler?
     var lastItemIDs: [UUID] = []
-    /// Cheap-diff endpoints used by `FileListView.updateNSView` to skip
-    /// the full `layoutItems.map(\.id)` allocation when nothing changed.
-    var lastItemCount: Int = 0
-    var lastFirstID: UUID?
-    var lastLastID: UUID?
+    var lastItemsSnapshot: DynamicLayoutItemsSnapshot?
     var draggedRows: IndexSet = []
     var isDragging = false
-    var dragKeyMonitor: Any?
-    var dragCancelled = false
+    let dragSession = DragSessionState()
 
     private static let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -139,6 +134,8 @@ public class ListCoordinator: NSObject, NSTableViewDataSource, NSTableViewDelega
             break
         }
 
+        lastItemIDs = parent.layoutItems.map(\.id)
+        lastItemsSnapshot = DynamicLayoutItemsSnapshot(items: parent.layoutItems)
         tableView.reloadData()
     }
 
@@ -213,18 +210,7 @@ public class ListCoordinator: NSObject, NSTableViewDataSource, NSTableViewDelega
             }
         }
 
-        // AppKit's NSDraggingSession does not honour ESC out of the box for
-        // NSCollectionView/NSTableView sources. Install a local key monitor
-        // that swallows ESC during the drag and triggers a cancel with the
-        // standard bounce-back animation.
-        dragCancelled = false
-        dragKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard event.keyCode == 53 else { return event } // 53 = ESC
-            guard let self else { return event }
-            dragCancelled = true
-            cancelActiveDrag()
-            return nil // swallow ESC
-        }
+        dragSession.begin()
     }
 
     public func tableView(
@@ -235,11 +221,7 @@ public class ListCoordinator: NSObject, NSTableViewDataSource, NSTableViewDelega
         draggedRows = []
         (tableView as? NiblessTableView)?.setDropTargetHighlight(false)
 
-        if let monitor = dragKeyMonitor {
-            NSEvent.removeMonitor(monitor)
-            dragKeyMonitor = nil
-        }
-        dragCancelled = false
+        dragSession.end()
     }
 
     public func tableView(
@@ -250,7 +232,7 @@ public class ListCoordinator: NSObject, NSTableViewDataSource, NSTableViewDelega
 
         // ESC pressed during the drag → refuse any drop, regardless of the
         // synthetic mouse-up's landing point.
-        if dragCancelled {
+        if dragSession.isCancelled {
             nibless?.setDropTargetHighlight(false)
             return []
         }
@@ -270,18 +252,18 @@ public class ListCoordinator: NSObject, NSTableViewDataSource, NSTableViewDelega
         if row >= 0,
            row < parent.layoutItems.count,
            let folderURL = directoryURL(atRow: row),
-           Coordinator.proposedFileOperation(for: info, destinationFolder: folderURL) != []
+           FileDropPerformer.proposedOperation(for: info, destinationFolder: folderURL) != []
         {
             tableView.setDropRow(row, dropOperation: .on)
             nibless?.setDropTargetHighlight(false)
-            return Coordinator.proposedFileOperation(
+            return FileDropPerformer.proposedOperation(
                 for: info, destinationFolder: folderURL
             )
         }
 
         // Whitespace drop into the pane's own folder. -1 + .on suppresses
         // the row indicator, the pane border is the visual cue.
-        let op = Coordinator.proposedFileOperation(
+        let op = FileDropPerformer.proposedOperation(
             for: info,
             destinationFolder: parent.folderURL
         )
@@ -308,7 +290,7 @@ public class ListCoordinator: NSObject, NSTableViewDataSource, NSTableViewDelega
         // Race-condition guard: validateDrop usually catches the cancel,
         // but if AppKit raced past it, refuse the drop here too. The flag
         // gets reset in the ended hook.
-        if dragCancelled {
+        if dragSession.isCancelled {
             return false
         }
 
@@ -327,23 +309,13 @@ public class ListCoordinator: NSObject, NSTableViewDataSource, NSTableViewDelega
             parent.layoutItems.insert(movedItem, at: min(adjustedTarget, parent.layoutItems.count))
 
             lastItemIDs = parent.layoutItems.map(\.id)
+            lastItemsSnapshot = DynamicLayoutItemsSnapshot(items: parent.layoutItems)
 
             tableView.beginUpdates()
             tableView.moveRow(at: draggedRow, to: adjustedTarget)
             tableView.endUpdates()
 
             return true
-        }
-
-        // External (or cross-pane) drop: perform the real file-system
-        // move/copy. Don't touch `layoutItems` — the file watcher (Phase 10)
-        // running on the destination pane picks up the new entries and the
-        // standard `updateNSView` diff animates them in.
-        let pasteboard = info.draggingPasteboard
-        guard let urls = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL],
-              !urls.isEmpty
-        else {
-            return false
         }
 
         // Folder-row drop: validateDrop set `.on` with that row's index,
@@ -355,33 +327,6 @@ public class ListCoordinator: NSObject, NSTableViewDataSource, NSTableViewDelega
             }
             return parent.folderURL
         }()
-        guard let destination = destinationFolder else { return false }
-
-        let forceCopy = NSApp.currentEvent?.modifierFlags.contains(.option) ?? false
-        FileDropPerformer.perform(urls: urls, into: destination, forceCopy: forceCopy)
-        return true
-    }
-
-    // MARK: - Cancel Active Drag
-
-    /// Synthesizes a mouse-up event far off-screen so the active dragging
-    /// session ends as cancelled (no valid drop target). NSDraggingSession
-    /// picks up the event from the queue and runs its bounce-back animation
-    /// thanks to `animatesToStartingPositionsOnCancelOrFail = true`.
-    private func cancelActiveDrag() {
-        let offScreen = NSPoint(x: -10000, y: -10000)
-        if let up = NSEvent.mouseEvent(
-            with: .leftMouseUp,
-            location: offScreen,
-            modifierFlags: [],
-            timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: 0,
-            context: nil,
-            eventNumber: 0,
-            clickCount: 1,
-            pressure: 0
-        ) {
-            NSApp.postEvent(up, atStart: true)
-        }
+        return FileDropPerformer.perform(info: info, into: destinationFolder)
     }
 }

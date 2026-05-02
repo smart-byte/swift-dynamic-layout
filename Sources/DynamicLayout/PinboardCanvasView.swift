@@ -90,16 +90,11 @@ public struct PinboardCanvasView: NSViewRepresentable {
 
     private func updateCanvas(_ canvas: PinboardCanvas, with items: [PinboardCanvasItemData]) {
         let currentIDs = Set(items.map(\.id))
-        let existingItemsByID: [UUID: PinboardCanvasItem] = Dictionary(
-            uniqueKeysWithValues: canvas.subviews.compactMap { subview in
-                guard let item = subview as? PinboardCanvasItem else { return nil }
-                return (item.itemID, item)
-            }
-        )
 
         // Remove stale items.
-        for (id, item) in existingItemsByID where !currentIDs.contains(id) {
-            item.removeFromSuperview()
+        canvas.forEachItem { item in
+            guard !currentIDs.contains(item.itemID) else { return }
+            canvas.removeItem(withID: item.itemID)
         }
 
         // Add or update items. `updateFrame` itself decides whether
@@ -108,7 +103,7 @@ public struct PinboardCanvasView: NSViewRepresentable {
         // so peer items don't flicker to 0° while one item is being
         // dragged.
         for data in items {
-            if let existing = existingItemsByID[data.id] {
+            if let existing = canvas.item(for: data.id) {
                 let targetFrame = data.frame
                 existing.updateFrame(targetFrame, rotation: data.rotation)
                 existing.updateZIndex(Int(data.zIndex))
@@ -121,12 +116,17 @@ public struct PinboardCanvasView: NSViewRepresentable {
                     zIndex: Int(data.zIndex)
                 )
                 item.canvas = canvas
+                item.isSelected = contextSelectionState(for: data.id, canvas: canvas)
+                canvas.registerItem(item)
                 canvas.addSubview(item)
             }
         }
 
-        // Sort subviews by z-index
-        canvas.sortSubviewsByZIndex()
+        canvas.syncZOrder(using: items)
+    }
+
+    private func contextSelectionState(for id: UUID, canvas: PinboardCanvas) -> Bool {
+        canvas.coordinator?.isItemSelected(id) ?? false
     }
 }
 
@@ -375,12 +375,16 @@ public class PinboardCanvasCoordinator: NSObject {
         applySelectionToItems()
     }
 
+    func isItemSelected(_ id: UUID) -> Bool {
+        selectedItemIDs.contains(id)
+    }
+
     /// Walks the canvas' item subviews and pushes each one's selected
     /// state. Cheap because `PinboardCanvasItem.isSelected` short-
     /// circuits when the value doesn't change.
     private func applySelectionToItems() {
         guard let canvas else { return }
-        for case let item as PinboardCanvasItem in canvas.subviews {
+        canvas.forEachItem { item in
             item.isSelected = selectedItemIDs.contains(item.itemID)
         }
     }

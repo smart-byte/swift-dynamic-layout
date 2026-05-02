@@ -140,6 +140,15 @@ extension PinboardCanvasItem {
         }
 
         applyResize(to: newSize, centeredAt: center)
+        canvas?.coordinator?.itemChanged(
+            itemID,
+            change: PinboardItemChange(
+                position: frame.origin,
+                size: frame.size,
+                rotation: rotationAngle
+            ),
+            phase: .changed
+        )
     }
 
     func itemCenter(for frame: NSRect) -> NSPoint {

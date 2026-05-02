@@ -46,18 +46,7 @@ public extension Coordinator {
         // effect. Restored in `endedAt`.
         pinSourceItemsVisible(in: collectionView, indexPaths: indexPaths)
 
-        // AppKit's NSDraggingSession does not honour ESC out of the box for
-        // NSCollectionView/NSTableView sources. Install a local key monitor
-        // that swallows ESC during the drag and triggers a cancel with the
-        // standard bounce-back animation.
-        dragCancelled = false
-        dragKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard event.keyCode == 53 else { return event } // 53 = ESC
-            guard let self else { return event }
-            dragCancelled = true
-            cancelActiveDrag()
-            return nil // swallow ESC
-        }
+        dragSession.begin()
     }
 
     func collectionView(
@@ -78,11 +67,7 @@ public extension Coordinator {
         isDragging = false
         draggedIndexPaths = []
 
-        if let monitor = dragKeyMonitor {
-            NSEvent.removeMonitor(monitor)
-            dragKeyMonitor = nil
-        }
-        dragCancelled = false
+        dragSession.end()
     }
 
     private func pinSourceItemsVisible(in collectionView: NSCollectionView, indexPaths: Set<IndexPath>) {
@@ -119,7 +104,7 @@ public extension Coordinator {
 
         // ESC pressed during the drag → refuse any drop, regardless of the
         // synthetic mouse-up's landing point.
-        if dragCancelled {
+        if dragSession.isCancelled {
             nibless?.hideDropIndicator()
             nibless?.setDropTargetHighlight(false)
             return []
@@ -150,9 +135,9 @@ public extension Coordinator {
         if let hitIndexPath = collectionView.indexPathForItem(at: point),
            hitIndexPath.item < parent.layoutItems.count,
            let folderURL = directoryURL(at: hitIndexPath),
-           Self.proposedFileOperation(for: info, destinationFolder: folderURL) != []
+           FileDropPerformer.proposedOperation(for: info, destinationFolder: folderURL) != []
         {
-            let op = Self.proposedFileOperation(for: info, destinationFolder: folderURL)
+            let op = FileDropPerformer.proposedOperation(for: info, destinationFolder: folderURL)
             proposedDropOperation.pointee = .on
             proposedDropIndexPath.pointee = NSIndexPath(forItem: hitIndexPath.item, inSection: 0)
             nibless?.setDropTargetHighlight(false)
@@ -166,7 +151,7 @@ public extension Coordinator {
         proposedDropIndexPath.pointee = NSIndexPath(
             forItem: parent.layoutItems.count, inSection: 0
         )
-        let op = Self.proposedFileOperation(
+        let op = FileDropPerformer.proposedOperation(
             for: info,
             destinationFolder: parent.folderURL
         )
@@ -226,34 +211,6 @@ public extension Coordinator {
         return values?.isDirectory == true ? url : nil
     }
 
-    /// Mirrors Finder's drop semantics:
-    /// - ⌥ held → forced copy
-    /// - same volume → move
-    /// - cross volume → copy
-    /// - destination unknown → fall back to `.generic`
-    /// - no source URL would actually transfer (folder-onto-self,
-    ///   folder-into-own-subtree, move-into-own-folder) → `[]` so the
-    ///   cursor flips to the not-allowed badge.
-    static func proposedFileOperation(
-        for info: NSDraggingInfo,
-        destinationFolder: URL?
-    ) -> NSDragOperation {
-        let forceCopy = NSApp.currentEvent?.modifierFlags.contains(.option) ?? false
-        guard let destinationFolder,
-              let urls = info.draggingPasteboard.readObjects(forClasses: [NSURL.self]) as? [URL],
-              let firstSource = urls.first
-        else {
-            return forceCopy ? .copy : .generic
-        }
-        guard FileDropPerformer.canTransferAny(
-            urls: urls, into: destinationFolder, forceCopy: forceCopy
-        ) else {
-            return []
-        }
-        if forceCopy { return .copy }
-        return FileDropPerformer.sameVolume(firstSource, destinationFolder) ? .move : .copy
-    }
-
     func collectionView(
         _ collectionView: NSCollectionView,
         acceptDrop draggingInfo: NSDraggingInfo,
@@ -263,7 +220,7 @@ public extension Coordinator {
         // Race-condition guard: validateDrop usually catches the cancel,
         // but if AppKit raced past it, refuse the drop here too. The flag
         // gets reset in the ended hook.
-        if dragCancelled {
+        if dragSession.isCancelled {
             (collectionView as? NiblessCollectionView)?.hideDropIndicator()
             (collectionView as? NiblessCollectionView)?.setDropTargetHighlight(false)
             return false
@@ -299,10 +256,8 @@ public extension Coordinator {
         draggingInfo: NSDraggingInfo,
         destinationOverride: URL? = nil
     ) -> Bool {
-        let pasteboard = draggingInfo.draggingPasteboard
-        guard let urls = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL],
-              !urls.isEmpty,
-              let destinationFolder = destinationOverride ?? parent.folderURL
+        let destinationFolder = destinationOverride ?? parent.folderURL
+        guard FileDropPerformer.perform(info: draggingInfo, into: destinationFolder)
         else {
             pendingDropIndex = nil
             isDragging = false
@@ -310,9 +265,6 @@ public extension Coordinator {
             return false
         }
         pendingDropIndex = nil
-
-        let forceCopy = NSApp.currentEvent?.modifierFlags.contains(.option) ?? false
-        FileDropPerformer.perform(urls: urls, into: destinationFolder, forceCopy: forceCopy)
 
         // No manual layoutItems mutation: the destination pane's file watcher
         // (Phase 10) picks up the new entries and animates the diff in. The
@@ -322,29 +274,6 @@ public extension Coordinator {
             self?.draggedIndexPaths = []
         }
         return true
-    }
-
-    // MARK: - Cancel Active Drag
-
-    /// Synthesizes a mouse-up event far off-screen so the active dragging
-    /// session ends as cancelled (no valid drop target). NSDraggingSession
-    /// picks up the event from the queue and runs its bounce-back animation
-    /// thanks to `animatesToStartingPositionsOnCancelOrFail = true`.
-    private func cancelActiveDrag() {
-        let offScreen = NSPoint(x: -10000, y: -10000)
-        if let up = NSEvent.mouseEvent(
-            with: .leftMouseUp,
-            location: offScreen,
-            modifierFlags: [],
-            timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: 0,
-            context: nil,
-            eventNumber: 0,
-            clickCount: 1,
-            pressure: 0
-        ) {
-            NSApp.postEvent(up, atStart: true)
-        }
     }
 
     // MARK: - Layout Update Helper

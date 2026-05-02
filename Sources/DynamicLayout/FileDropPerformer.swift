@@ -19,6 +19,53 @@ import Logging
 enum FileDropPerformer {
     private static let logger = Logger(label: "voila.drop")
 
+    static func urls(from info: NSDraggingInfo) -> [URL] {
+        info.draggingPasteboard.readObjects(forClasses: [NSURL.self]) as? [URL] ?? []
+    }
+
+    static func isForceCopyRequested() -> Bool {
+        NSApp.currentEvent?.modifierFlags.contains(.option) ?? false
+    }
+
+    /// Mirrors Finder's drop semantics:
+    /// - Option held forces copy
+    /// - same volume defaults to move
+    /// - cross volume defaults to copy
+    /// - invalid drops return [] so AppKit shows the not-allowed cursor
+    static func proposedOperation(
+        for info: NSDraggingInfo,
+        destinationFolder: URL?
+    ) -> NSDragOperation {
+        let forceCopy = isForceCopyRequested()
+        let urls = urls(from: info)
+        guard let destinationFolder,
+              let firstSource = urls.first
+        else {
+            return forceCopy ? .copy : .generic
+        }
+
+        guard canTransferAny(urls: urls, into: destinationFolder, forceCopy: forceCopy) else {
+            return []
+        }
+        if forceCopy { return .copy }
+        return sameVolume(firstSource, destinationFolder) ? .move : .copy
+    }
+
+    @discardableResult
+    static func perform(
+        info: NSDraggingInfo,
+        into destinationFolder: URL?
+    ) -> Bool {
+        let urls = urls(from: info)
+        guard !urls.isEmpty, let destinationFolder else { return false }
+        perform(
+            urls: urls,
+            into: destinationFolder,
+            forceCopy: isForceCopyRequested()
+        )
+        return true
+    }
+
     /// Moves or copies each `urls` entry into `destinationFolder`.
     ///
     /// Rules:

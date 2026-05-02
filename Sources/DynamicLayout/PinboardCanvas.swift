@@ -11,6 +11,8 @@ import AppKit
 /// Provides a large drawing surface with a subtle grid background.
 public class PinboardCanvas: NSView {
     weak var coordinator: PinboardCanvasCoordinator?
+    private var itemsByID: [UUID: PinboardCanvasItem] = [:]
+    private var orderedItemIDs: [UUID] = []
 
     private let gridSpacing: CGFloat = 50
     private let gridColor = NSColor.gray.withAlphaComponent(0.1)
@@ -116,12 +118,51 @@ public class PinboardCanvas: NSView {
         path.stroke()
     }
 
-    func sortSubviewsByZIndex() {
-        let sorted = subviews
-            .compactMap { $0 as? PinboardCanvasItem }
-            .sorted { $0.zIndex < $1.zIndex }
-        for item in sorted {
-            addSubview(item)
+    func item(for id: UUID) -> PinboardCanvasItem? {
+        itemsByID[id]
+    }
+
+    func registerItem(_ item: PinboardCanvasItem) {
+        itemsByID[item.itemID] = item
+    }
+
+    func removeItem(withID id: UUID) {
+        itemsByID[id]?.removeFromSuperview()
+        itemsByID[id] = nil
+        orderedItemIDs.removeAll { $0 == id }
+    }
+
+    func forEachItem(_ body: (PinboardCanvasItem) -> Void) {
+        for id in orderedItemIDs {
+            if let item = itemsByID[id] {
+                body(item)
+            }
+        }
+    }
+
+    func syncZOrder(using orderedItems: [PinboardCanvasItemData]) {
+        let desiredOrder = orderedItems
+            .sorted {
+                if $0.zIndex == $1.zIndex {
+                    return $0.id.uuidString < $1.id.uuidString
+                }
+                return $0.zIndex < $1.zIndex
+            }
+            .map(\.id)
+
+        guard desiredOrder != orderedItemIDs else { return }
+
+        orderedItemIDs = desiredOrder
+
+        var previous: PinboardCanvasItem?
+        for id in desiredOrder {
+            guard let item = itemsByID[id] else { continue }
+            if let previous {
+                addSubview(item, positioned: .above, relativeTo: previous)
+            } else {
+                addSubview(item, positioned: .below, relativeTo: nil)
+            }
+            previous = item
         }
     }
 

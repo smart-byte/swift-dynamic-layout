@@ -86,8 +86,8 @@ public struct FileCollectionView: NSViewRepresentable {
             return
         }
 
-        let itemsChanged = coordinator.lastItemCount != layoutItems.count ||
-            coordinator.lastItemIDs != layoutItems.map(\.id)
+        let itemsSnapshot = DynamicLayoutItemsSnapshot(items: layoutItems)
+        let itemsChanged = coordinator.lastItemsSnapshot != itemsSnapshot
         let layoutChanged = coordinator.lastLayoutMode != layoutMode
         let spacingChanged = coordinator.lastSpacing != itemSpacing
         let columnsChanged = coordinator.lastColumns != columns
@@ -100,6 +100,14 @@ public struct FileCollectionView: NSViewRepresentable {
         // each body re-render hands us a freshly-allocated handler instance.
         (collectionView as? NiblessCollectionView)?.actionHandler = actionHandler
 
+        let validSelection = sanitizedSelection(selection, itemCount: layoutItems.count)
+        if validSelection != selection {
+            selection = validSelection
+        }
+        if collectionView.selectionIndexPaths != validSelection {
+            collectionView.selectionIndexPaths = validSelection
+        }
+
         // Save scroll position for the current folder before switching
         if itemsChanged, let url = coordinator.currentFolderURL {
             let firstVisible = collectionView.indexPathsForVisibleItems()
@@ -109,11 +117,16 @@ public struct FileCollectionView: NSViewRepresentable {
         coordinator.currentFolderURL = folderURL
 
         if layoutChanged {
-            applyLayoutChange(collectionView: collectionView, coordinator: coordinator)
+            applyLayoutChange(
+                collectionView: collectionView,
+                coordinator: coordinator,
+                itemsSnapshot: itemsSnapshot
+            )
         } else if itemsChanged {
             applyItemsChange(
                 collectionView: collectionView,
                 coordinator: coordinator,
+                itemsSnapshot: itemsSnapshot,
                 folderChanged: folderChanged
             )
         } else if spacingChanged || columnsChanged || targetSizeChanged {
@@ -132,13 +145,18 @@ public struct FileCollectionView: NSViewRepresentable {
 
     // MARK: - Update Helpers
 
-    private func applyLayoutChange(collectionView: NSCollectionView, coordinator: Coordinator) {
+    private func applyLayoutChange(
+        collectionView: NSCollectionView,
+        coordinator: Coordinator,
+        itemsSnapshot: DynamicLayoutItemsSnapshot
+    ) {
         // FLIP morph: capture old positions → swap layout → animate old→new
         let oldFrames = coordinator.captureVisibleItemFrames(collectionView)
         let newLayout = createLayout(for: layoutMode, items: layoutItems, spacing: itemSpacing, columns: columns, targetSize: targetSize)
         coordinator.lastLayoutMode = layoutMode
         coordinator.lastItemCount = layoutItems.count
         coordinator.lastItemIDs = layoutItems.map(\.id)
+        coordinator.lastItemsSnapshot = itemsSnapshot
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -153,12 +171,14 @@ public struct FileCollectionView: NSViewRepresentable {
     private func applyItemsChange(
         collectionView: NSCollectionView,
         coordinator: Coordinator,
+        itemsSnapshot: DynamicLayoutItemsSnapshot,
         folderChanged: Bool
     ) {
         let oldIDs = coordinator.lastItemIDs
         let newIDs = layoutItems.map(\.id)
         coordinator.lastItemCount = layoutItems.count
         coordinator.lastItemIDs = newIDs
+        coordinator.lastItemsSnapshot = itemsSnapshot
         updateLayoutItems(collectionView.collectionViewLayout, items: layoutItems)
 
         if folderChanged {
@@ -263,6 +283,7 @@ public class Coordinator: NSObject, NSCollectionViewDataSource, NSCollectionView
     var lastItemStyle: ItemStyle?
     var lastItemCount: Int = -1
     var lastItemIDs: [UUID] = []
+    var lastItemsSnapshot: DynamicLayoutItemsSnapshot?
     var lastSpacing: CGFloat = -1
     var lastColumns: Int = -1
     var lastTargetSize: CGFloat?
@@ -272,8 +293,7 @@ public class Coordinator: NSObject, NSCollectionViewDataSource, NSCollectionView
     var isDragging = false
     var isProcessingDrop = false
     var pendingDropIndex: Int?
-    var dragKeyMonitor: Any?
-    var dragCancelled = false
+    let dragSession = DragSessionState()
 
     // Scroll-position cache: folder URL → first visible item index
     static var scrollCache: [URL: Int] = [:]

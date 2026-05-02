@@ -53,6 +53,7 @@ extension Coordinator {
 
         lastItemCount = parent.layoutItems.count
         lastItemIDs = parent.layoutItems.map(\.id)
+        lastItemsSnapshot = DynamicLayoutItemsSnapshot(items: parent.layoutItems)
         updateLayout(collectionView, items: parent.layoutItems)
 
         CATransaction.begin()
