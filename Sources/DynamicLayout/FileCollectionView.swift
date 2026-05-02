@@ -62,7 +62,7 @@ public struct FileCollectionView: NSViewRepresentable {
             forItemWithIdentifier: NSUserInterfaceItemIdentifier(rawValue: "ThumbnailItem")
         )
 
-        let layout = createLayout(for: layoutMode, items: layoutItems, spacing: itemSpacing, columns: columns, targetSize: targetSize)
+        let layout = createLayout()
         collectionView.collectionViewLayout = layout
 
         collectionView.selectionIndexPaths = selection
@@ -139,7 +139,7 @@ public struct FileCollectionView: NSViewRepresentable {
 
         if coordinator.lastItemStyle != itemStyle {
             coordinator.lastItemStyle = itemStyle
-            collectionView.reloadData()
+            applyItemStyleChange(collectionView: collectionView)
         }
     }
 
@@ -152,7 +152,7 @@ public struct FileCollectionView: NSViewRepresentable {
     ) {
         // FLIP morph: capture old positions → swap layout → animate old→new
         let oldFrames = coordinator.captureVisibleItemFrames(collectionView)
-        let newLayout = createLayout(for: layoutMode, items: layoutItems, spacing: itemSpacing, columns: columns, targetSize: targetSize)
+        let newLayout = createLayout()
         coordinator.lastLayoutMode = layoutMode
         coordinator.lastItemCount = layoutItems.count
         coordinator.lastItemIDs = layoutItems.map(\.id)
@@ -258,7 +258,7 @@ public struct FileCollectionView: NSViewRepresentable {
     private func applyPropertyChange(collectionView: NSCollectionView, coordinator: Coordinator) {
         // FLIP animation for smooth property transitions
         let oldFrames = coordinator.captureVisibleItemFrames(collectionView)
-        updateLayoutProperties(collectionView.collectionViewLayout, spacing: itemSpacing, columns: columns, targetSize: targetSize)
+        updateLayoutProperties(collectionView.collectionViewLayout)
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)

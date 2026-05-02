@@ -14,6 +14,10 @@ public class ThumbnailItem: NSCollectionViewItem {
 
     private var borderImageView: BorderImageView?
     private var plainImageView: NSImageView?
+    /// Square background view used by `.tile` style. The cell itself stays
+    /// full-bleed (so layouts get their natural cell rect), and the visible
+    /// "frame" is rendered inside this centered square subview.
+    private var tileBackgroundView: NSView?
     private var currentURL: URL?
     private var pendingImage: NSImage?
 
@@ -79,6 +83,47 @@ public class ThumbnailItem: NSCollectionViewItem {
         CATransaction.commit()
     }
 
+    /// For `.tile` cells, the visible "frame" is the surrounding tile, but
+    /// only the inner image should fly with the cursor — the dragged
+    /// payload is the file itself, not the chrome we put around it. For
+    /// the other styles the full cell *is* the visual, so the default
+    /// snapshot still applies.
+    override public var draggingImageComponents: [NSDraggingImageComponent] {
+        guard itemStyle == .tile,
+              let imageView = plainImageView,
+              let image = imageView.image
+        else {
+            return super.draggingImageComponents
+        }
+        let component = NSDraggingImageComponent(key: .icon)
+        component.contents = image
+        // The imageView is square, but the image inside is drawn at its
+        // native aspect via `scaleProportionallyUpOrDown` — so the visible
+        // bitmap doesn't fill the square. Use the aspect-fitted sub-rect
+        // as the drag component's frame; otherwise the drag preview would
+        // stretch the image back to a square.
+        let container = imageView.convert(imageView.bounds, to: view)
+        let imageSize = image.size
+        guard imageSize.width > 0, imageSize.height > 0 else {
+            component.frame = container
+            return [component]
+        }
+        let imageAspect = imageSize.width / imageSize.height
+        let containerAspect = container.width / container.height
+        let fitted = if imageAspect > containerAspect {
+            CGSize(width: container.width, height: container.width / imageAspect)
+        } else {
+            CGSize(width: container.height * imageAspect, height: container.height)
+        }
+        component.frame = CGRect(
+            x: container.midX - fitted.width / 2,
+            y: container.midY - fitted.height / 2,
+            width: fitted.width,
+            height: fitted.height
+        )
+        return [component]
+    }
+
     // MARK: - View Setup (style-dependent)
 
     override public func loadView() {
@@ -102,8 +147,8 @@ public class ThumbnailItem: NSCollectionViewItem {
         switch itemStyle {
         case .photoFrame:
             setupPhotoFrameStyle()
-        case .contactSheet:
-            setupContactSheetStyle()
+        case .tile:
+            setupTileStyle()
         case .borderless:
             setupBorderlessStyle()
         }
@@ -133,22 +178,45 @@ public class ThumbnailItem: NSCollectionViewItem {
         ])
     }
 
-    private func setupContactSheetStyle() {
-        view.layer?.backgroundColor = CGColor(gray: 0.2, alpha: 0.3)
-        view.layer?.borderWidth = 4.0
-        view.layer?.borderColor = .clear
+    private func setupTileStyle() {
+        view.layer?.backgroundColor = .clear
+
+        let tile = NSView()
+        tile.wantsLayer = true
+        tile.layer?.backgroundColor = CGColor(gray: 0.5, alpha: 0.15)
+        tile.layer?.borderWidth = 3.0
+        tile.layer?.borderColor = .clear
+        tile.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(tile)
+        tileBackgroundView = tile
 
         let imageView = NSImageView()
         imageView.imageScaling = .scaleProportionallyUpOrDown
         imageView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(imageView)
+        tile.addSubview(imageView)
         plainImageView = imageView
 
+        // Tile = the largest centered square that fits inside the cell.
+        // Two `lessThanOrEqualTo` caps + a square aspect + one default-high
+        // `equalTo` per axis lets Auto Layout pick the smaller axis to drive
+        // the tile size while still centering inside the cell.
+        let widthFill = tile.widthAnchor.constraint(equalTo: view.widthAnchor)
+        widthFill.priority = .defaultHigh
+        let heightFill = tile.heightAnchor.constraint(equalTo: view.heightAnchor)
+        heightFill.priority = .defaultHigh
+
         NSLayoutConstraint.activate([
-            imageView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            imageView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-            imageView.widthAnchor.constraint(equalTo: view.widthAnchor, multiplier: 0.95),
-            imageView.heightAnchor.constraint(equalTo: view.heightAnchor, multiplier: 0.95),
+            tile.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            tile.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            tile.widthAnchor.constraint(equalTo: tile.heightAnchor),
+            tile.widthAnchor.constraint(lessThanOrEqualTo: view.widthAnchor),
+            tile.heightAnchor.constraint(lessThanOrEqualTo: view.heightAnchor),
+            widthFill,
+            heightFill,
+            imageView.centerXAnchor.constraint(equalTo: tile.centerXAnchor),
+            imageView.centerYAnchor.constraint(equalTo: tile.centerYAnchor),
+            imageView.widthAnchor.constraint(equalTo: tile.widthAnchor, multiplier: 0.9),
+            imageView.heightAnchor.constraint(equalTo: tile.heightAnchor, multiplier: 0.9),
         ])
     }
 
@@ -168,8 +236,11 @@ public class ThumbnailItem: NSCollectionViewItem {
         switch itemStyle {
         case .photoFrame:
             view.layer?.cornerRadius = view.bounds.width * 0.1
-        case .contactSheet:
-            view.layer?.cornerRadius = view.bounds.width * 0.02
+        case .tile:
+            view.layer?.cornerRadius = 0
+            if let tile = tileBackgroundView {
+                tile.layer?.cornerRadius = tile.bounds.width * 0.06
+            }
         case .borderless:
             view.layer?.cornerRadius = 0
         }
@@ -178,7 +249,7 @@ public class ThumbnailItem: NSCollectionViewItem {
         // surrounding cell is rounded.
         let overlayRadius: CGFloat = switch itemStyle {
         case .photoFrame: max(12, view.bounds.width * 0.1)
-        case .contactSheet: max(8, view.bounds.width * 0.02)
+        case .tile: max(8, (tileBackgroundView?.bounds.width ?? view.bounds.width) * 0.06)
         case .borderless: 10
         }
         dropTargetOverlay.layer?.cornerRadius = overlayRadius
@@ -233,107 +304,11 @@ public class ThumbnailItem: NSCollectionViewItem {
         switch itemStyle {
         case .photoFrame:
             view.layer?.backgroundColor = isSelected ? CGColor(gray: 1, alpha: 0.1) : .clear
-        case .contactSheet:
-            view.layer?.borderColor = isSelected ? NSColor.controlAccentColor.cgColor : .clear
+        case .tile:
+            tileBackgroundView?.layer?.borderColor = isSelected ? NSColor.controlAccentColor.cgColor : .clear
         case .borderless:
             view.layer?.borderWidth = isSelected ? 4.0 : 0
             view.layer?.borderColor = isSelected ? NSColor.controlAccentColor.cgColor : .clear
         }
-    }
-}
-
-class BorderImageView: NSView {
-    private var borderImageView = NSImageView()
-
-    var image: NSImage? {
-        didSet {
-            borderImageView.image = image?.withRelativeBorderAndThinBorder(percentage: 0.08, borderColor: overlayColor, borderWidthPercentage: 0.005)
-        }
-    }
-
-    var overlayColor: NSColor = .white
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        setupImageView()
-        configureShadow()
-    }
-
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        setupImageView()
-        configureShadow()
-    }
-
-    private func setupImageView() {
-        borderImageView.autoresizingMask = [.width, .height]
-        borderImageView.imageScaling = .scaleProportionallyUpOrDown
-        addSubview(borderImageView)
-    }
-
-    private func configureShadow() {
-        let shadow = NSShadow()
-        shadow.shadowColor = NSColor.black.withAlphaComponent(0.5)
-        shadow.shadowOffset = calculateShadowOffset()
-        shadow.shadowBlurRadius = calculateShadowBlurRadius()
-        borderImageView.shadow = shadow
-    }
-
-    private func calculateShadowBlurRadius() -> CGFloat {
-        (bounds.width + bounds.height) / 2 * 0.02
-    }
-
-    private func calculateShadowOffset() -> NSSize {
-        NSSize(width: 0, height: -(bounds.width + bounds.height) / 2 * 0.01)
-    }
-
-    override func layout() {
-        super.layout()
-        configureShadow()
-    }
-}
-
-extension NSImage {
-    func withRelativeBorder(percentage: CGFloat, color: NSColor) -> NSImage {
-        let border = (size.width + size.height) / 2.0 * percentage
-
-        let newSize = CGSize(width: size.width + border * 2, height: size.height + border * 2)
-        let newImage = NSImage(size: newSize)
-        let frame = NSRect(origin: CGPoint(x: border, y: border), size: size)
-
-        newImage.lockFocus()
-        color.set()
-        NSBezierPath(rect: NSRect(origin: .zero, size: newSize)).fill()
-        draw(in: frame, from: .zero, operation: .sourceOver, fraction: 1.0)
-        newImage.unlockFocus()
-
-        return newImage
-    }
-}
-
-extension NSImage {
-    func withRelativeBorderAndThinBorder(percentage: CGFloat, borderColor: NSColor, borderWidthPercentage: CGFloat, borderAlpha: CGFloat = 0.2) -> NSImage {
-        let border = (size.width + size.height) / 2.0 * percentage
-        let borderWidth = (size.width + size.height) / 2.0 * borderWidthPercentage
-
-        let newSize = CGSize(width: size.width + border * 2, height: size.height + border * 2)
-        let newImage = NSImage(size: newSize)
-        let frame = NSRect(origin: CGPoint(x: border, y: border), size: size)
-
-        newImage.lockFocus()
-
-        borderColor.set()
-        NSBezierPath(rect: NSRect(origin: .zero, size: newSize)).fill()
-
-        draw(in: frame, from: .zero, operation: .sourceOver, fraction: 1.0)
-
-        NSColor(calibratedWhite: 0.0, alpha: borderAlpha).set()
-        let borderPath = NSBezierPath(rect: frame.insetBy(dx: -borderWidth / 2, dy: -borderWidth / 2))
-        borderPath.lineWidth = borderWidth
-        borderPath.stroke()
-
-        newImage.unlockFocus()
-
-        return newImage
     }
 }

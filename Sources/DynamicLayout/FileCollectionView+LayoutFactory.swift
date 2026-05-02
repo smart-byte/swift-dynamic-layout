@@ -11,34 +11,31 @@ import AppKit
 /// `FileCollectionView.swift` to keep that file under SwiftLint's
 /// 400-line ceiling — no behaviour change.
 extension FileCollectionView {
-    func createLayout(
-        for mode: LayoutMode,
-        items: [DynamicLayoutItem],
-        spacing: CGFloat,
-        columns: Int,
-        targetSize: CGFloat = 200
-    ) -> NSCollectionViewLayout {
+    /// Build a fresh layout for the current `layoutMode` / `itemStyle`.
+    /// Reads everything off `self` so callers stay one-liners.
+    func createLayout() -> NSCollectionViewLayout {
         let insets = NSEdgeInsets(top: 20, left: 20, bottom: 20, right: 20)
+        let squareCells = itemStyle == .tile
 
-        switch mode {
+        switch layoutMode {
         case .verticalFlow, .list:
             let layout = VerticalFlowLayout()
             layout.sectionInset = insets
-            layout.items = items
-            layout.spacingPercentage = spacing
+            layout.items = layoutItems
+            layout.spacingPercentage = itemSpacing
             return layout
 
         case .waterfall:
             let layout = WaterfallLayout()
             layout.sectionInset = insets
-            layout.items = items
+            layout.items = layoutItems
             layout.columns = columns
-            layout.spacingPercentage = spacing
+            layout.spacingPercentage = itemSpacing
             return layout
 
         case .horizontalFlow:
             let layout = HorizontalFlowLayout()
-            layout.items = items
+            layout.items = layoutItems
             layout.sectionInset = insets
             layout.minimumInteritemSpacing = 10
             layout.minimumLineSpacing = 10
@@ -46,18 +43,20 @@ extension FileCollectionView {
 
         case .justified:
             let layout = JustifiedLayout()
-            layout.items = items
+            layout.items = layoutItems
             layout.sectionInset = insets
             layout.spacing = 4
             layout.targetRowHeight = targetSize
+            layout.useSquareCells = squareCells
             return layout
 
         case .horizontalJustified:
             let layout = HorizontalJustifiedLayout()
-            layout.items = items
+            layout.items = layoutItems
             layout.sectionInset = insets
             layout.spacing = 4
             layout.targetColumnWidth = targetSize
+            layout.useSquareCells = squareCells
             return layout
         }
     }
@@ -66,16 +65,29 @@ extension FileCollectionView {
         (layout as? LayoutItemsProvider)?.setItems(items)
     }
 
-    func updateLayoutProperties(_ layout: NSCollectionViewLayout?, spacing: CGFloat, columns: Int, targetSize: CGFloat = 200) {
+    /// React to an item-style change without swapping the layout mode.
+    /// Style-driven flags (e.g. `useSquareCells` for `.tile`) need to take
+    /// effect on the live layout, then we invalidate so cells reflow
+    /// before the cell views themselves get re-rendered with the new style.
+    func applyItemStyleChange(collectionView: NSCollectionView) {
+        updateLayoutProperties(collectionView.collectionViewLayout)
+        collectionView.collectionViewLayout?.invalidateLayout()
+        collectionView.reloadData()
+    }
+
+    func updateLayoutProperties(_ layout: NSCollectionViewLayout?) {
+        let squareCells = itemStyle == .tile
         if let layout = layout as? VerticalFlowLayout {
-            layout.spacingPercentage = spacing
+            layout.spacingPercentage = itemSpacing
         } else if let layout = layout as? WaterfallLayout {
-            layout.spacingPercentage = spacing
+            layout.spacingPercentage = itemSpacing
             layout.columns = columns
         } else if let layout = layout as? JustifiedLayout {
             layout.targetRowHeight = targetSize
+            layout.useSquareCells = squareCells
         } else if let layout = layout as? HorizontalJustifiedLayout {
             layout.targetColumnWidth = targetSize
+            layout.useSquareCells = squareCells
         }
     }
 }

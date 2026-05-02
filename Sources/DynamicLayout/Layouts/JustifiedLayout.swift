@@ -19,6 +19,14 @@ public class JustifiedLayout: NSCollectionViewLayout, LayoutItemsProvider {
     public var targetRowHeight: CGFloat = 200
     public var spacing: CGFloat = 4
     public var sectionInset: NSEdgeInsets = .init(top: 20, left: 20, bottom: 20, right: 20)
+    /// Force every cell to a 1:1 aspect, ignoring the item's image
+    /// aspect. Drives the uniform-square-grid look used by the `.tile`
+    /// item style.
+    public var useSquareCells: Bool = false
+
+    private func aspect(for item: DynamicLayoutItem) -> CGFloat {
+        useSquareCells ? 1.0 : item.aspectRatio
+    }
 
     override public func prepare() {
         super.prepare()
@@ -35,7 +43,8 @@ public class JustifiedLayout: NSCollectionViewLayout, LayoutItemsProvider {
         var currentRowWidth: CGFloat = 0
 
         for (index, item) in items.enumerated() {
-            let itemWidth = targetRowHeight * item.aspectRatio
+            let effectiveAspect = aspect(for: item)
+            let itemWidth = targetRowHeight * effectiveAspect
             let spacingForItem = currentRowItems.isEmpty ? 0 : spacing
             let projectedWidth = currentRowWidth + itemWidth + spacingForItem
 
@@ -54,7 +63,7 @@ public class JustifiedLayout: NSCollectionViewLayout, LayoutItemsProvider {
 
             let spacingBefore = currentRowItems.isEmpty ? 0 : spacing
             currentRowWidth += itemWidth + spacingBefore
-            currentRowItems.append((index: index, aspectRatio: item.aspectRatio))
+            currentRowItems.append((index: index, aspectRatio: effectiveAspect))
         }
 
         // Last row — do NOT stretch to fill

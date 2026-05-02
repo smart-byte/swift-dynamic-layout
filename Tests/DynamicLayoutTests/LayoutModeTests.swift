@@ -41,15 +41,15 @@ struct LayoutModeTests {
         #expect(LayoutMode.verticalFlow.defaultItemStyle == .borderless)
     }
 
-    @Test func listDefaultsToContactSheet() {
-        #expect(LayoutMode.list.defaultItemStyle == .contactSheet)
+    @Test func listDefaultsToTile() {
+        #expect(LayoutMode.list.defaultItemStyle == .tile)
     }
 
-    @Test func justifiedDefaultsToContactSheet() {
-        #expect(LayoutMode.justified.defaultItemStyle == .contactSheet)
+    @Test func justifiedDefaultsToTile() {
+        #expect(LayoutMode.justified.defaultItemStyle == .tile)
     }
 
-    @Test func horizontalJustifiedDefaultsToContactSheet() {
-        #expect(LayoutMode.horizontalJustified.defaultItemStyle == .contactSheet)
+    @Test func horizontalJustifiedDefaultsToTile() {
+        #expect(LayoutMode.horizontalJustified.defaultItemStyle == .tile)
     }
 }

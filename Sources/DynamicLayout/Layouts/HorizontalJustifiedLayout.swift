@@ -19,6 +19,14 @@ public class HorizontalJustifiedLayout: NSCollectionViewFlowLayout, LayoutItemsP
 
     public var targetColumnWidth: CGFloat = 200
     public var spacing: CGFloat = 4
+    /// Force every cell to a 1:1 aspect, ignoring the item's image
+    /// aspect. Drives the uniform-square-grid look used by the `.tile`
+    /// item style.
+    public var useSquareCells: Bool = false
+
+    private func aspect(for item: DynamicLayoutItem) -> CGFloat {
+        useSquareCells ? 1.0 : item.aspectRatio
+    }
 
     override public func prepare() {
         super.prepare()
@@ -37,8 +45,9 @@ public class HorizontalJustifiedLayout: NSCollectionViewFlowLayout, LayoutItemsP
         var currentColHeight: CGFloat = 0
 
         for (index, item) in items.enumerated() {
+            let effectiveAspect = aspect(for: item)
             // At targetColumnWidth, item height = targetColumnWidth / aspectRatio
-            let itemHeight = targetColumnWidth / item.aspectRatio
+            let itemHeight = targetColumnWidth / effectiveAspect
             let spacingForItem = currentColItems.isEmpty ? 0 : spacing
             let projectedHeight = currentColHeight + itemHeight + spacingForItem
 
@@ -56,7 +65,7 @@ public class HorizontalJustifiedLayout: NSCollectionViewFlowLayout, LayoutItemsP
 
             let spacingBefore = currentColItems.isEmpty ? 0 : spacing
             currentColHeight += itemHeight + spacingBefore
-            currentColItems.append((index: index, aspectRatio: item.aspectRatio))
+            currentColItems.append((index: index, aspectRatio: effectiveAspect))
         }
 
         // Last column — do NOT stretch to fill

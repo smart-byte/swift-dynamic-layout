@@ -25,7 +25,7 @@ public enum LayoutMode: String, CaseIterable, Hashable, Codable, Sendable {
         switch self {
         case .waterfall: .photoFrame
         case .horizontalFlow, .verticalFlow: .borderless
-        default: .contactSheet
+        default: .tile
         }
     }
 
