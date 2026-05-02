@@ -6,6 +6,7 @@
 //
 
 import AppKit
+import ImageIO
 import ImageTools
 
 /// Draggable canvas item with rotation, z-index, and context menu.
@@ -47,7 +48,7 @@ public class PinboardCanvasItem: NSView {
         rotationAngle = rotation
         self.zIndex = zIndex
         super.init(frame: frame)
-        setupView()
+        setupView(transparent: Self.imageHasTransparency(at: imageURL))
         loadImage()
     }
 
@@ -56,26 +57,38 @@ public class PinboardCanvasItem: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    private func setupView() {
+    private func setupView(transparent: Bool) {
         wantsLayer = true
-        layer?.backgroundColor = NSColor.white.cgColor
-        layer?.borderColor = NSColor.separatorColor.cgColor
-        layer?.borderWidth = 1
 
-        // Shadow for photo feel
-        let shadow = NSShadow()
-        shadow.shadowColor = NSColor.black.withAlphaComponent(0.3)
-        shadow.shadowOffset = NSSize(width: 0, height: -3)
-        shadow.shadowBlurRadius = 8
-        self.shadow = shadow
+        if transparent {
+            // Image carries its own alpha (PNG with transparency, …) —
+            // skip the polaroid-style card so the transparent regions
+            // pass through. No border, no shadow either: a rectangular
+            // shadow underneath a non-rectangular image looks wrong.
+            layer?.backgroundColor = NSColor.clear.cgColor
+        } else {
+            // Opaque image — render with the polaroid-card affordance:
+            // white backing, hairline border, soft drop shadow.
+            layer?.backgroundColor = NSColor.white.cgColor
+            layer?.borderColor = NSColor.separatorColor.cgColor
+            layer?.borderWidth = 1
+            let shadow = NSShadow()
+            shadow.shadowColor = NSColor.black.withAlphaComponent(0.3)
+            shadow.shadowOffset = NSSize(width: 0, height: -3)
+            shadow.shadowBlurRadius = 8
+            self.shadow = shadow
+        }
 
-        // Image view with padding (photo border)
         imageView = NSImageView()
         imageView.imageScaling = .scaleProportionallyUpOrDown
         imageView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(imageView)
 
-        let padding: CGFloat = 8
+        // Photo-card padding only when the card is visible. Transparent
+        // items fill the whole frame so the image's own bounds match the
+        // canvas item exactly — corner handles still sit on the visible
+        // edges.
+        let padding: CGFloat = transparent ? 0 : 8
         NSLayoutConstraint.activate([
             imageView.topAnchor.constraint(equalTo: topAnchor, constant: padding),
             imageView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -padding),
@@ -87,6 +100,17 @@ public class PinboardCanvasItem: NSView {
 
         // Context menu
         menu = buildContextMenu()
+    }
+
+    /// Synchronous alpha-channel probe via `CGImageSource`. Reads only
+    /// the metadata header (no decode), so it stays cheap even for
+    /// large images. Returns `false` for unreadable sources (PDFs,
+    /// movies, missing files) — those keep the polaroid look.
+    private static func imageHasTransparency(at url: URL) -> Bool {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+        else { return false }
+        return (props[kCGImagePropertyHasAlpha] as? Bool) == true
     }
 
     private func applyRotation() {
