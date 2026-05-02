@@ -23,6 +23,21 @@ public class PinboardCanvas: NSView {
         true
     }
 
+    override public init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        // Layer-back the canvas so child items' layer transforms are
+        // composited reliably. Without this, rotated children often
+        // render at 0° because the non-layer-backed parent doesn't
+        // propagate the layer.transform of layer-backed subviews
+        // through its drawRect-based rendering path.
+        wantsLayer = true
+    }
+
+    @available(*, unavailable)
+    required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
     override public func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         guard window != nil, !didCenterInitially else { return }
@@ -108,6 +123,17 @@ public class PinboardCanvas: NSView {
         for item in sorted {
             addSubview(item)
         }
+    }
+
+    // MARK: - Selection
+
+    /// Click on empty canvas (no item caught the event) clears the
+    /// selection — same affordance as Finder, NSCollectionView, and any
+    /// canvas app. Marquee select would extend this; for now a plain
+    /// click on background is the only path that lands here.
+    override public func mouseDown(with event: NSEvent) {
+        super.mouseDown(with: event)
+        coordinator?.deselectAll()
     }
 
     // MARK: - Drag & Drop from Finder

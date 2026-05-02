@@ -115,19 +115,29 @@ public struct PinboardCanvasView: NSViewRepresentable {
             }
         }
 
-        // Add or update items
+        // Add or update items. `updateFrame` itself decides whether
+        // anything actually needs touching — origin-only changes go
+        // through a fast path that doesn't reset the layer transform,
+        // so peer items don't flicker to 0° while one item is being
+        // dragged.
         for data in items {
-            if let existing = canvas.subviews.compactMap({ $0 as? PinboardCanvasItem }).first(where: { $0.itemID == data.id }) {
-                existing.updateFrame(
-                    NSRect(x: data.positionX, y: data.positionY, width: data.width, height: data.height),
-                    rotation: data.rotation
-                )
+            let targetFrame = NSRect(
+                x: data.positionX,
+                y: data.positionY,
+                width: data.width,
+                height: data.height
+            )
+            if let existing = canvas.subviews
+                .compactMap({ $0 as? PinboardCanvasItem })
+                .first(where: { $0.itemID == data.id })
+            {
+                existing.updateFrame(targetFrame, rotation: data.rotation)
                 existing.updateZIndex(Int(data.zIndex))
             } else {
                 let item = PinboardCanvasItem(
                     itemID: data.id,
                     imageURL: data.fileURL,
-                    frame: NSRect(x: data.positionX, y: data.positionY, width: data.width, height: data.height),
+                    frame: targetFrame,
                     rotation: data.rotation,
                     zIndex: Int(data.zIndex)
                 )
@@ -196,6 +206,19 @@ public class PinboardCanvasCoordinator: NSObject {
     var parent: PinboardCanvasView
     weak var canvas: PinboardCanvas?
     weak var scrollView: NSScrollView?
+    /// Process-local selection state. Lives on the coordinator so a
+    /// reflow of the SwiftUI parent doesn't reset what the user picked
+    /// (selection isn't persisted across launches).
+    private var selectedItemIDs: Set<UUID> = []
+    /// Last reported scroll origin/size — used by `reportScrollState`
+    /// to swallow no-op notifications. Without dedup, every layout
+    /// pass during a drag can re-fire bounds notifications that
+    /// mutate the host's `@State` viewportOrigin/Size, retriggering
+    /// SwiftUI rerenders → updateCanvas → updateFrame for every item
+    /// → layout pass. That's the "items snap to 0° as soon as I drag
+    /// one" cycle.
+    private var lastReportedOrigin: CGPoint?
+    private var lastReportedSize: CGSize?
 
     init(_ parent: PinboardCanvasView) {
         self.parent = parent
@@ -250,6 +273,10 @@ public class PinboardCanvasCoordinator: NSObject {
 
     /// Computes the current viewport origin and visible size in canvas
     /// coordinates and forwards them via `onScrollChanged`.
+    /// Deduplicates: the host stores the values in `@State`, so firing
+    /// with unchanged values would still trigger SwiftUI rerenders and
+    /// can establish a feedback loop with the layout system during
+    /// drag interactions.
     private func reportScrollState(in sv: NSScrollView) {
         let clip = sv.contentView
         // `clipView.bounds` is already in document (canvas) coordinates —
@@ -257,7 +284,16 @@ public class PinboardCanvasCoordinator: NSObject {
         // size shrinks on zoom-in and grows on zoom-out. No further math
         // is needed; dividing by magnification would double-apply the
         // scale factor and produce a visibly mis-sized viewport rect.
-        parent.onScrollChanged?(clip.bounds.origin, clip.bounds.size)
+        let origin = clip.bounds.origin
+        let size = clip.bounds.size
+        if let lastOrigin = lastReportedOrigin, let lastSize = lastReportedSize,
+           lastOrigin == origin, lastSize == size
+        {
+            return
+        }
+        lastReportedOrigin = origin
+        lastReportedSize = size
+        parent.onScrollChanged?(origin, size)
     }
 
     func zoomChanged(_ magnification: CGFloat) {
@@ -298,5 +334,39 @@ public class PinboardCanvasCoordinator: NSObject {
 
     func externalDrop(urls: [URL], at point: CGPoint, imageSize: CGSize?) {
         parent.onExternalDrop?(urls, point, imageSize)
+    }
+
+    // MARK: - Selection
+
+    /// Promote `id` to the active selection. `additive == true` toggles
+    /// it in place (Cmd+Click), otherwise the selection collapses to
+    /// just this item.
+    func selectItem(_ id: UUID, additive: Bool) {
+        if additive {
+            if selectedItemIDs.contains(id) {
+                selectedItemIDs.remove(id)
+            } else {
+                selectedItemIDs.insert(id)
+            }
+        } else {
+            selectedItemIDs = [id]
+        }
+        applySelectionToItems()
+    }
+
+    func deselectAll() {
+        guard !selectedItemIDs.isEmpty else { return }
+        selectedItemIDs.removeAll()
+        applySelectionToItems()
+    }
+
+    /// Walks the canvas' item subviews and pushes each one's selected
+    /// state. Cheap because `PinboardCanvasItem.isSelected` short-
+    /// circuits when the value doesn't change.
+    private func applySelectionToItems() {
+        guard let canvas else { return }
+        for case let item as PinboardCanvasItem in canvas.subviews {
+            item.isSelected = selectedItemIDs.contains(item.itemID)
+        }
     }
 }
