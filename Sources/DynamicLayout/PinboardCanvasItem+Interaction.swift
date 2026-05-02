@@ -162,7 +162,7 @@ extension PinboardCanvasItem {
         )
         setFrameSize(size)
         setFrameOrigin(newOrigin)
-        layoutContentAndImageLayers(transparent: hasTransparency)
+        layoutContentAndImageLayers()
         applyRotation()
         if isSelected { updateSelectionRingPath() }
     }

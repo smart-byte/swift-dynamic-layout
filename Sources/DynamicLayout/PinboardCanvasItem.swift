@@ -7,12 +7,12 @@
 
 import AppKit
 import Foundation
-import ImageIO
 import ImageTools
 import Logging
 
 /// Draggable canvas item with rotation, z-index, and context menu.
-/// Styled with shadow and border for a physical photo feel.
+/// Renders borderless on the pinboard — image fills bounds, the
+/// canvas peeks through any alpha the file itself carries.
 /// Corner regions allow rotate+scale via mouse drag.
 public class PinboardCanvasItem: NSView {
     let itemID: UUID
@@ -32,7 +32,6 @@ public class PinboardCanvasItem: NSView {
     /// transform is preserved.
     private let contentLayer = CALayer()
     private let imageLayer = CALayer()
-    var hasTransparency = false
     var dragOrigin: NSPoint = .zero
     var frameOrigin: NSPoint = .zero
 
@@ -79,8 +78,7 @@ public class PinboardCanvasItem: NSView {
         rotationAngle = rotation
         self.zIndex = zIndex
         super.init(frame: frame)
-        hasTransparency = Self.imageHasTransparency(at: imageURL)
-        setupView(transparent: hasTransparency)
+        setupView()
         loadImage()
     }
 
@@ -101,28 +99,18 @@ public class PinboardCanvasItem: NSView {
         if isSelected { updateSelectionRingPath() }
     }
 
-    private func setupView(transparent: Bool) {
+    private func setupView() {
         wantsLayer = true
         // Keep self.layer pristine — NSView resets its transform on
         // every frame-sync, so anything rotation-related must live on
         // a child layer.
         layer?.backgroundColor = NSColor.clear.cgColor
 
-        // Polaroid card affordance lives on contentLayer (so it
-        // rotates together with the image), unless the image carries
-        // its own alpha — then we drop the card so transparent regions
-        // pass through.
-        if transparent {
-            contentLayer.backgroundColor = NSColor.clear.cgColor
-        } else {
-            contentLayer.backgroundColor = NSColor.white.cgColor
-            contentLayer.borderColor = NSColor.separatorColor.cgColor
-            contentLayer.borderWidth = 1
-            contentLayer.shadowColor = NSColor.black.withAlphaComponent(0.3).cgColor
-            contentLayer.shadowOffset = NSSize(width: 0, height: -3)
-            contentLayer.shadowRadius = 8
-            contentLayer.shadowOpacity = 1.0
-        }
+        // Pinboard items render borderless — no card backing, no
+        // padding, no shadow. The image fills the item bounds; the
+        // image's own alpha (PNGs, video frames, etc.) determines how
+        // the canvas peeks through.
+        contentLayer.backgroundColor = NSColor.clear.cgColor
         contentLayer.actions = ["transform": NSNull(), "bounds": NSNull(), "position": NSNull()]
         layer?.addSublayer(contentLayer)
 
@@ -133,7 +121,7 @@ public class PinboardCanvasItem: NSView {
         imageLayer.actions = ["contents": NSNull(), "bounds": NSNull(), "position": NSNull()]
         contentLayer.addSublayer(imageLayer)
 
-        layoutContentAndImageLayers(transparent: transparent)
+        layoutContentAndImageLayers()
         applyRotation()
 
         menu = buildContextMenu()
@@ -142,24 +130,12 @@ public class PinboardCanvasItem: NSView {
     /// Sync child-layer geometry to the current bounds. `contentLayer`
     /// may already be rotated, so we update it via `bounds` + `position`
     /// instead of `frame` — mutating `frame` on a transformed CALayer
-    /// derives through the transform and can skew the border/image
-    /// relationship during interactive resize.
-    func layoutContentAndImageLayers(transparent: Bool) {
+    /// derives through the transform and can skew the image bounds
+    /// during interactive resize.
+    func layoutContentAndImageLayers() {
         contentLayer.bounds = CGRect(origin: .zero, size: bounds.size)
         contentLayer.position = CGPoint(x: bounds.midX, y: bounds.midY)
-        let padding: CGFloat = transparent ? 0 : 8
-        imageLayer.frame = contentLayer.bounds.insetBy(dx: padding, dy: padding)
-    }
-
-    /// Synchronous alpha-channel probe via `CGImageSource`. Reads only
-    /// the metadata header (no decode), so it stays cheap even for
-    /// large images. Returns `false` for unreadable sources (PDFs,
-    /// movies, missing files) — those keep the polaroid look.
-    private static func imageHasTransparency(at url: URL) -> Bool {
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
-        else { return false }
-        return (props[kCGImagePropertyHasAlpha] as? Bool) == true
+        imageLayer.frame = contentLayer.bounds
     }
 
     // MARK: - Selection Ring
@@ -252,7 +228,7 @@ public class PinboardCanvasItem: NSView {
         CATransaction.setDisableActions(true)
         frame = newFrame
         rotationAngle = rotation
-        layoutContentAndImageLayers(transparent: hasTransparency)
+        layoutContentAndImageLayers()
         applyRotation()
         if isSelected { updateSelectionRingPath() }
         CATransaction.commit()
