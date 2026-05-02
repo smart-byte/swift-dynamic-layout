@@ -32,9 +32,9 @@ public class PinboardCanvasItem: NSView {
     /// transform is preserved.
     private let contentLayer = CALayer()
     private let imageLayer = CALayer()
-    private var hasTransparency = false
-    private var dragOrigin: NSPoint = .zero
-    private var frameOrigin: NSPoint = .zero
+    var hasTransparency = false
+    var dragOrigin: NSPoint = .zero
+    var frameOrigin: NSPoint = .zero
 
     /// Highlight the item with a selection ring. Driven from
     /// `PinboardCanvasCoordinator.selectedItemIDs` — the coordinator is
@@ -57,21 +57,21 @@ public class PinboardCanvasItem: NSView {
 
     // MARK: - Drag State
 
-    private enum DragMode {
+    enum DragMode {
         case move
         case handleResize
     }
 
-    private static let cornerHitRadius: CGFloat = 16
-    private static let minItemSize: CGFloat = 40
+    static let cornerHitRadius: CGFloat = 16
+    static let minItemSize: CGFloat = 40
 
-    private var dragMode: DragMode = .move
+    var dragMode: DragMode = .move
 
     // State captured at drag start for handle resize
-    private var initialFrame: NSRect = .zero
-    private var initialRotation: CGFloat = 0
-    private var initialDistance: CGFloat = 0
-    private var initialAngle: CGFloat = 0
+    var initialFrame: NSRect = .zero
+    var initialRotation: CGFloat = 0
+    var initialDistance: CGFloat = 0
+    var initialAngle: CGFloat = 0
 
     init(itemID: UUID, imageURL: URL, frame: NSRect, rotation: CGFloat, zIndex: Int) {
         self.itemID = itemID
@@ -144,7 +144,7 @@ public class PinboardCanvasItem: NSView {
     /// instead of `frame` — mutating `frame` on a transformed CALayer
     /// derives through the transform and can skew the border/image
     /// relationship during interactive resize.
-    private func layoutContentAndImageLayers(transparent: Bool) {
+    func layoutContentAndImageLayers(transparent: Bool) {
         contentLayer.bounds = CGRect(origin: .zero, size: bounds.size)
         contentLayer.position = CGPoint(x: bounds.midX, y: bounds.midY)
         let padding: CGFloat = transparent ? 0 : 8
@@ -187,7 +187,7 @@ public class PinboardCanvasItem: NSView {
         }
     }
 
-    private func updateSelectionRingPath() {
+    func updateSelectionRingPath() {
         guard let ring = selectionRingLayer else { return }
         let outset = Self.selectionRingOutset
         let rect = contentLayer.bounds.insetBy(dx: -outset, dy: -outset)
@@ -203,7 +203,7 @@ public class PinboardCanvasItem: NSView {
         ring.contentsScale = window?.backingScaleFactor ?? 2
     }
 
-    private func applyRotation() {
+    func applyRotation() {
         // contentLayer's anchorPoint is (0.5, 0.5) by default, so the
         // transform's origin already sits at the layer's geometric
         // center. A plain rotate is enough — the translate-rotate-
@@ -215,7 +215,7 @@ public class PinboardCanvasItem: NSView {
     }
 
     /// Snap angle to the nearest 45° increment.
-    private func snapAngle(_ angle: CGFloat) -> CGFloat {
+    func snapAngle(_ angle: CGFloat) -> CGFloat {
         let step = CGFloat.pi / 4
         return (angle / step).rounded() * step
     }
@@ -233,7 +233,11 @@ public class PinboardCanvasItem: NSView {
         let originChanged = frame.origin != newFrame.origin
 
         Logger(label: "voila.pinboard").debug(
-            "updateFrame item=\(itemID.uuidString.prefix(8)) currentRot=\(rotationAngle) targetRot=\(rotation) sizeChanged=\(sizeChanged) rotChanged=\(rotationChanged) originChanged=\(originChanged)"
+            """
+            updateFrame item=\(itemID.uuidString.prefix(8)) currentRot=\(rotationAngle) \
+            targetRot=\(rotation) sizeChanged=\(sizeChanged) rotChanged=\(rotationChanged) \
+            originChanged=\(originChanged)
+            """
         )
 
         if !sizeChanged, !rotationChanged {
@@ -273,7 +277,7 @@ public class PinboardCanvasItem: NSView {
     /// Convert a window-coordinate event to this item's content-layer
     /// coordinate system, correctly accounting for the rotation
     /// transform (which lives on `contentLayer`, not `self.layer`).
-    private func localPointFromEvent(_ event: NSEvent) -> NSPoint {
+    func localPointFromEvent(_ event: NSEvent) -> NSPoint {
         guard let superLayer = superview?.layer else {
             return convert(event.locationInWindow, from: nil)
         }
@@ -282,7 +286,7 @@ public class PinboardCanvasItem: NSView {
     }
 
     /// Check if a local point is near any corner of the item bounds.
-    private func isNearCorner(_ point: NSPoint) -> Bool {
+    func isNearCorner(_ point: NSPoint) -> Bool {
         let r = Self.cornerHitRadius
         let w = bounds.width
         let h = bounds.height
@@ -308,129 +312,5 @@ public class PinboardCanvasItem: NSView {
         let padding = Self.cornerHitRadius
         let hitRect = bounds.insetBy(dx: -padding, dy: -padding)
         return hitRect.contains(localPoint) ? self : nil
-    }
-
-    // MARK: - Mouse Events
-
-    override public func mouseDown(with event: NSEvent) {
-        // Selection precedes drag/resize: every mouseDown promotes this
-        // item to the active selection (Cmd toggles additively, like
-        // NSCollectionView). Doing this *before* the drag-mode branch
-        // means a click-and-drag still leaves the item selected on
-        // mouseUp without a separate code path.
-        let additive = event.modifierFlags.contains(.command)
-        canvas?.coordinator?.selectItem(itemID, additive: additive)
-
-        // Wrap the transform-clear → frame-read → re-apply dance in a
-        // CATransaction with actions off, otherwise Core Animation
-        // morphs from `CATransform3DIdentity` back to the rotation in
-        // ~0.25s and the user sees the item flicker straight on every
-        // mousedown.
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        defer { CATransaction.commit() }
-
-        let localPt = localPointFromEvent(event)
-
-        if isNearCorner(localPt) {
-            dragMode = .handleResize
-            initialRotation = rotationAngle
-
-            initialFrame = frame
-
-            // Compute initial vector from frame center to mouse (in superview coordinates)
-            let superPoint = superview?.convert(event.locationInWindow, from: nil) ?? event.locationInWindow
-            let center = NSPoint(x: initialFrame.midX, y: initialFrame.midY)
-            let dx = superPoint.x - center.x
-            let dy = superPoint.y - center.y
-            initialDistance = sqrt(dx * dx + dy * dy)
-            initialAngle = atan2(dy, dx)
-        } else {
-            dragMode = .move
-            dragOrigin = superview?.convert(event.locationInWindow, from: nil) ?? event.locationInWindow
-            frameOrigin = frame.origin
-        }
-    }
-
-    override public func mouseDragged(with event: NSEvent) {
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        defer { CATransaction.commit() }
-
-        switch dragMode {
-        case .move:
-            let current = superview?.convert(event.locationInWindow, from: nil) ?? event.locationInWindow
-            let dx = current.x - dragOrigin.x
-            let dy = current.y - dragOrigin.y
-            let newOrigin = NSPoint(x: frameOrigin.x + dx, y: frameOrigin.y + dy)
-            setFrameOrigin(newOrigin)
-            applyRotation()
-            // Live tick — host updates the mini-map without persisting.
-            canvas?.coordinator?.itemMoved(itemID, to: newOrigin, phase: .changed)
-
-        case .handleResize:
-            let superPoint = superview?.convert(event.locationInWindow, from: nil) ?? event.locationInWindow
-            let center = NSPoint(x: initialFrame.midX, y: initialFrame.midY)
-            let dx = superPoint.x - center.x
-            let dy = superPoint.y - center.y
-            let currentDistance = sqrt(dx * dx + dy * dy)
-            let currentAngle = atan2(dy, dx)
-
-            // Scale: ratio of distances
-            guard initialDistance > 0 else { return }
-            let scaleFactor = currentDistance / initialDistance
-            var newWidth = initialFrame.width * scaleFactor
-            var newHeight = initialFrame.height * scaleFactor
-
-            // Enforce minimum size
-            newWidth = max(newWidth, Self.minItemSize)
-            newHeight = max(newHeight, Self.minItemSize)
-
-            // Rotation: invert the delta so the handle motion matches
-            // the visual "grab the corner and turn it" direction on a
-            // flipped AppKit canvas.
-            let angleDelta = initialAngle - currentAngle
-            rotationAngle = initialRotation + angleDelta
-            if event.modifierFlags.contains(.shift) {
-                rotationAngle = snapAngle(rotationAngle)
-            }
-
-            let newX = center.x - newWidth / 2
-            let newY = center.y - newHeight / 2
-            setFrameSize(NSSize(width: newWidth, height: newHeight))
-            setFrameOrigin(NSPoint(x: newX, y: newY))
-            layoutContentAndImageLayers(transparent: hasTransparency)
-            applyRotation()
-            if isSelected { updateSelectionRingPath() }
-        }
-    }
-
-    override public func mouseUp(with _: NSEvent) {
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        let cleanOrigin = frame.origin
-        let cleanSize = frame.size
-        applyRotation()
-        CATransaction.commit()
-
-        switch dragMode {
-        case .move:
-            canvas?.coordinator?.itemMoved(itemID, to: cleanOrigin, phase: .ended)
-        case .handleResize:
-            canvas?.coordinator?.itemMoved(itemID, to: cleanOrigin, phase: .ended)
-            canvas?.coordinator?.itemRotated(itemID, by: rotationAngle)
-            canvas?.coordinator?.itemResized(itemID, to: cleanSize)
-        }
-    }
-
-    // MARK: - Rotation via Trackpad
-
-    override public func rotate(with event: NSEvent) {
-        rotationAngle -= CGFloat(event.rotation) * (.pi / 180)
-        if event.modifierFlags.contains(.shift) {
-            rotationAngle = snapAngle(rotationAngle)
-        }
-        applyRotation()
-        canvas?.coordinator?.itemRotated(itemID, by: rotationAngle)
     }
 }

@@ -11,15 +11,7 @@ import SwiftUI
 /// Supports magnification (0.25x–4x) and drag & drop from Finder.
 public struct PinboardCanvasView: NSViewRepresentable {
     let items: [PinboardCanvasItemData]
-    /// Called for every drag tick (`.changed`) plus a final `.ended` on
-    /// release. Hosts typically maintain a transient overlay on
-    /// `.changed` and persist on `.ended`.
-    let onItemMoved: ((UUID, CGPoint, PinboardGesturePhase) -> Void)?
-    let onItemRotated: ((UUID, CGFloat) -> Void)?
-    let onItemResized: ((UUID, CGSize) -> Void)?
-    let onItemReordered: ((UUID, PinboardCanvasAction) -> Void)?
-    let onItemRemoved: ((UUID) -> Void)?
-    let onExternalDrop: (([URL], CGPoint, CGSize?) -> Void)?
+    let onEvent: ((PinboardCanvasEvent) -> Void)?
     let onZoomChanged: ((CGFloat) -> Void)?
     /// Fires whenever the scroll position or magnification changes.
     /// Both `origin` and `visibleSize` are in canvas coordinates; AppKit
@@ -32,23 +24,13 @@ public struct PinboardCanvasView: NSViewRepresentable {
 
     public init(
         items: [PinboardCanvasItemData],
-        onItemMoved: ((UUID, CGPoint, PinboardGesturePhase) -> Void)? = nil,
-        onItemRotated: ((UUID, CGFloat) -> Void)? = nil,
-        onItemResized: ((UUID, CGSize) -> Void)? = nil,
-        onItemReordered: ((UUID, PinboardCanvasAction) -> Void)? = nil,
-        onItemRemoved: ((UUID) -> Void)? = nil,
-        onExternalDrop: (([URL], CGPoint, CGSize?) -> Void)? = nil,
+        onEvent: ((PinboardCanvasEvent) -> Void)? = nil,
         onZoomChanged: ((CGFloat) -> Void)? = nil,
         onScrollChanged: ((_ origin: CGPoint, _ visibleSize: CGSize) -> Void)? = nil,
         scrollTarget: Binding<CGPoint?> = .constant(nil)
     ) {
         self.items = items
-        self.onItemMoved = onItemMoved
-        self.onItemRotated = onItemRotated
-        self.onItemResized = onItemResized
-        self.onItemReordered = onItemReordered
-        self.onItemRemoved = onItemRemoved
-        self.onExternalDrop = onExternalDrop
+        self.onEvent = onEvent
         self.onZoomChanged = onZoomChanged
         self.onScrollChanged = onScrollChanged
         _scrollTarget = scrollTarget
@@ -107,12 +89,17 @@ public struct PinboardCanvasView: NSViewRepresentable {
     }
 
     private func updateCanvas(_ canvas: PinboardCanvas, with items: [PinboardCanvasItemData]) {
-        // Remove stale items
         let currentIDs = Set(items.map(\.id))
-        for subview in canvas.subviews {
-            if let item = subview as? PinboardCanvasItem, !currentIDs.contains(item.itemID) {
-                item.removeFromSuperview()
+        let existingItemsByID: [UUID: PinboardCanvasItem] = Dictionary(
+            uniqueKeysWithValues: canvas.subviews.compactMap { subview in
+                guard let item = subview as? PinboardCanvasItem else { return nil }
+                return (item.itemID, item)
             }
+        )
+
+        // Remove stale items.
+        for (id, item) in existingItemsByID where !currentIDs.contains(id) {
+            item.removeFromSuperview()
         }
 
         // Add or update items. `updateFrame` itself decides whether
@@ -121,23 +108,15 @@ public struct PinboardCanvasView: NSViewRepresentable {
         // so peer items don't flicker to 0° while one item is being
         // dragged.
         for data in items {
-            let targetFrame = NSRect(
-                x: data.positionX,
-                y: data.positionY,
-                width: data.width,
-                height: data.height
-            )
-            if let existing = canvas.subviews
-                .compactMap({ $0 as? PinboardCanvasItem })
-                .first(where: { $0.itemID == data.id })
-            {
+            if let existing = existingItemsByID[data.id] {
+                let targetFrame = data.frame
                 existing.updateFrame(targetFrame, rotation: data.rotation)
                 existing.updateZIndex(Int(data.zIndex))
             } else {
                 let item = PinboardCanvasItem(
                     itemID: data.id,
                     imageURL: data.fileURL,
-                    frame: targetFrame,
+                    frame: data.frame,
                     rotation: data.rotation,
                     zIndex: Int(data.zIndex)
                 )
@@ -182,11 +161,43 @@ public struct PinboardCanvasItemData: Identifiable {
         self.rotation = rotation
         self.zIndex = zIndex
     }
+
+    var frame: CGRect {
+        CGRect(
+            x: positionX,
+            y: positionY,
+            width: width,
+            height: height
+        )
+    }
 }
 
 public enum PinboardCanvasAction {
     case bringToFront
     case sendToBack
+}
+
+public enum PinboardCanvasEvent {
+    case itemChanged(UUID, PinboardItemChange, PinboardGesturePhase)
+    case itemReordered(UUID, PinboardCanvasAction)
+    case itemRemoved(UUID)
+    case externalDrop(urls: [URL], at: CGPoint, imageSize: CGSize?)
+}
+
+public struct PinboardItemChange {
+    public var position: CGPoint?
+    public var size: CGSize?
+    public var rotation: CGFloat?
+
+    public init(
+        position: CGPoint? = nil,
+        size: CGSize? = nil,
+        rotation: CGFloat? = nil
+    ) {
+        self.position = position
+        self.size = size
+        self.rotation = rotation
+    }
 }
 
 /// Lifecycle phase of a continuous interaction (drag, resize, …).
@@ -312,28 +323,32 @@ public class PinboardCanvasCoordinator: NSObject {
         scrollView.reflectScrolledClipView(scrollView.contentView)
     }
 
+    func itemChanged(_ id: UUID, change: PinboardItemChange, phase: PinboardGesturePhase) {
+        parent.onEvent?(.itemChanged(id, change, phase))
+    }
+
     func itemMoved(_ id: UUID, to point: CGPoint, phase: PinboardGesturePhase) {
-        parent.onItemMoved?(id, point, phase)
+        itemChanged(id, change: PinboardItemChange(position: point), phase: phase)
     }
 
-    func itemRotated(_ id: UUID, by angle: CGFloat) {
-        parent.onItemRotated?(id, angle)
+    func itemRotated(_ id: UUID, by angle: CGFloat, phase: PinboardGesturePhase) {
+        itemChanged(id, change: PinboardItemChange(rotation: angle), phase: phase)
     }
 
-    func itemResized(_ id: UUID, to size: CGSize) {
-        parent.onItemResized?(id, size)
+    func itemResized(_ id: UUID, to size: CGSize, phase: PinboardGesturePhase) {
+        itemChanged(id, change: PinboardItemChange(size: size), phase: phase)
     }
 
     func itemReordered(_ id: UUID, action: PinboardCanvasAction) {
-        parent.onItemReordered?(id, action)
+        parent.onEvent?(.itemReordered(id, action))
     }
 
     func itemRemoved(_ id: UUID) {
-        parent.onItemRemoved?(id)
+        parent.onEvent?(.itemRemoved(id))
     }
 
     func externalDrop(urls: [URL], at point: CGPoint, imageSize: CGSize?) {
-        parent.onExternalDrop?(urls, point, imageSize)
+        parent.onEvent?(.externalDrop(urls: urls, at: point, imageSize: imageSize))
     }
 
     // MARK: - Selection
