@@ -114,6 +114,17 @@ public struct PinboardMiniMap: View {
     /// math agrees with the actual rendered position.
     private static let edgeInset: CGFloat = 16
 
+    /// Pre-blended accent colour used for mini-map item dots. Looks
+    /// like `accentColor.opacity(0.5)` over the mini-map glass, but is
+    /// fully opaque so overlapping items don't compound into noisy
+    /// dark seams. Dynamic so it follows light/dark appearance.
+    private static let itemDotColor: Color = .init(nsColor: NSColor(name: nil) { appearance in
+        let isDark = appearance.bestMatch(from: [.darkAqua, .vibrantDark]) != nil
+        let backdrop: NSColor = isDark ? .black : .white
+        return NSColor.controlAccentColor.blended(withFraction: 0.5, of: backdrop)
+            ?? NSColor.controlAccentColor
+    })
+
     // MARK: - Body
 
     public var body: some View {
@@ -206,17 +217,30 @@ public struct PinboardMiniMap: View {
                 height: max(rect.height, 2)
             )
             // Mirror the canvas item's rotation so the mini-map shows the
-            // same visual orientation. `drawLayer` isolates the transform
-            // so it doesn't bleed into other items.
+            // same visual orientation. PinboardCanvas is `isFlipped = true`
+            // and applies rotation on a CALayer (Y-up math convention),
+            // which lands on screen as clockwise for positive angles.
+            // SwiftUI's Canvas runs top-left-origin so a positive
+            // `rotate(by:)` rotates the *opposite* way visually — flip
+            // the sign so the mini-map matches the canvas. `drawLayer`
+            // isolates the transform so it doesn't bleed into other
+            // items.
             context.drawLayer { layer in
                 if item.rotation != 0 {
                     layer.translateBy(x: clamped.midX, y: clamped.midY)
-                    layer.rotate(by: .radians(item.rotation))
+                    layer.rotate(by: .radians(-item.rotation))
                     layer.translateBy(x: -clamped.midX, y: -clamped.midY)
                 }
+                // Solid colour rather than `accentColor.opacity(0.5)`:
+                // overlapping translucent rects darken at the seams,
+                // which looks noisy on a glance-tool. Pre-blend accent
+                // 50/50 with the system background so the dots *look*
+                // like a 50% accent tint over the mini-map glass while
+                // staying opaque on top of each other. Dynamic so it
+                // tracks light/dark appearance changes.
                 layer.fill(
                     Path(roundedRect: clamped, cornerRadius: 1),
-                    with: .foreground
+                    with: .color(Self.itemDotColor)
                 )
             }
         }
