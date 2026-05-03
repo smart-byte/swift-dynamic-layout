@@ -255,18 +255,17 @@ public struct FileCollectionView: NSViewRepresentable {
         }
     }
 
-    private func applyPropertyChange(collectionView: NSCollectionView, coordinator: Coordinator) {
-        // FLIP animation for smooth property transitions
-        let oldFrames = coordinator.captureVisibleItemFrames(collectionView)
+    private func applyPropertyChange(collectionView: NSCollectionView, coordinator _: Coordinator) {
+        // No FLIP animation here on purpose: spacing / columns /
+        // targetSize are slider-driven, and a continuous slider fires
+        // dozens of changes per second. Stacking 200ms FLIP animations
+        // on each tick reads as stutter — direct invalidation tracks
+        // the slider 1:1 instead.
         updateLayoutProperties(collectionView.collectionViewLayout)
-
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         collectionView.collectionViewLayout?.invalidateLayout()
-        collectionView.layoutSubtreeIfNeeded()
         CATransaction.commit()
-
-        coordinator.animateFromOldFrames(oldFrames, in: collectionView, duration: 0.2)
     }
 
     public func makeCoordinator() -> Coordinator {
