@@ -24,10 +24,6 @@ public class JustifiedLayout: NSCollectionViewLayout, LayoutItemsProvider {
     /// item style.
     public var useSquareCells: Bool = false
 
-    private func aspect(for item: DynamicLayoutItem) -> CGFloat {
-        useSquareCells ? 1.0 : item.aspectRatio
-    }
-
     override public func prepare() {
         super.prepare()
 
@@ -43,7 +39,7 @@ public class JustifiedLayout: NSCollectionViewLayout, LayoutItemsProvider {
         var currentRowWidth: CGFloat = 0
 
         for (index, item) in items.enumerated() {
-            let effectiveAspect = aspect(for: item)
+            let effectiveAspect = effectiveAspect(for: item, useSquareCells: useSquareCells)
             let itemWidth = targetRowHeight * effectiveAspect
             let spacingForItem = currentRowItems.isEmpty ? 0 : spacing
             let projectedWidth = currentRowWidth + itemWidth + spacingForItem

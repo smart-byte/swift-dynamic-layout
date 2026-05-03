@@ -24,10 +24,6 @@ public class HorizontalJustifiedLayout: NSCollectionViewFlowLayout, LayoutItemsP
     /// item style.
     public var useSquareCells: Bool = false
 
-    private func aspect(for item: DynamicLayoutItem) -> CGFloat {
-        useSquareCells ? 1.0 : item.aspectRatio
-    }
-
     override public func prepare() {
         super.prepare()
 
@@ -45,7 +41,7 @@ public class HorizontalJustifiedLayout: NSCollectionViewFlowLayout, LayoutItemsP
         var currentColHeight: CGFloat = 0
 
         for (index, item) in items.enumerated() {
-            let effectiveAspect = aspect(for: item)
+            let effectiveAspect = effectiveAspect(for: item, useSquareCells: useSquareCells)
             // At targetColumnWidth, item height = targetColumnWidth / aspectRatio
             let itemHeight = targetColumnWidth / effectiveAspect
             let spacingForItem = currentColItems.isEmpty ? 0 : spacing

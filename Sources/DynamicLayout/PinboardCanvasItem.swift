@@ -8,7 +8,6 @@
 import AppKit
 import Foundation
 import ImageTools
-import Logging
 
 /// Draggable canvas item with rotation, z-index, and context menu.
 /// Renders borderless on the pinboard — image fills bounds, the
@@ -207,14 +206,6 @@ public class PinboardCanvasItem: NSView {
         let sizeChanged = frame.size != newFrame.size
         let rotationChanged = rotationAngle != rotation
         let originChanged = frame.origin != newFrame.origin
-
-        Logger(label: "voila.pinboard").debug(
-            """
-            updateFrame item=\(itemID.uuidString.prefix(8)) currentRot=\(rotationAngle) \
-            targetRot=\(rotation) sizeChanged=\(sizeChanged) rotChanged=\(rotationChanged) \
-            originChanged=\(originChanged)
-            """
-        )
 
         if !sizeChanged, !rotationChanged {
             if originChanged {
