@@ -5,6 +5,8 @@
 //  Created by Mario Heubach on 07.05.24.
 //
 
+// swiftlint:disable file_length
+
 import AppKit
 import ImageTools
 
@@ -18,6 +20,18 @@ public class ThumbnailItem: NSCollectionViewItem {
     /// full-bleed (so layouts get their natural cell rect), and the visible
     /// "frame" is rendered inside this centered square subview.
     private var tileBackgroundView: NSView?
+    /// Filename label shown below (photoFrame, tile) or overlaid on
+    /// (borderless) the image. Style-specific look configured by the
+    /// per-style setup methods.
+    private var captionLabel: NSTextField?
+    /// Pill-shaped wrapper used by the borderless caption — sits
+    /// centered over the lower edge of the image. Other styles use
+    /// the cell view directly.
+    private var captionPill: CaptionPill?
+    /// Below this cell-height threshold the caption is hidden — at
+    /// thumbnail-grid sizes the label would either get clipped or
+    /// dominate the cell.
+    private static let captionMinCellHeight: CGFloat = 80
     private var currentURL: URL?
     private var pendingImage: NSImage?
 
@@ -70,6 +84,7 @@ public class ThumbnailItem: NSCollectionViewItem {
         currentURL = nil
         borderImageView?.image = nil
         plainImageView?.image = nil
+        captionLabel?.stringValue = ""
         isSelected = false
         highlightState = .none
         view.layer?.transform = CATransform3DIdentity
@@ -167,14 +182,44 @@ public class ThumbnailItem: NSCollectionViewItem {
 
         let imageView = BorderImageView()
         imageView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(imageView)
         borderImageView = imageView
 
+        // Filename below the framed image — centered, single line,
+        // truncated in the middle so file extensions stay visible.
+        let label = makeCaptionLabel(
+            font: .systemFont(ofSize: 11, weight: .medium),
+            color: .secondaryLabelColor
+        )
+        captionLabel = label
+
+        // Apple-idiomatic vertical stack: caption gets `required`
+        // compression and hugging priorities so it always renders at
+        // its intrinsic height; the image gets `defaultLow` and shrinks
+        // first when the cell can't fit both. When the caption is
+        // hidden later, the stack drops it from layout automatically
+        // and the image takes the freed space.
+        let stack = NSStackView(views: [imageView, label])
+        stack.orientation = .vertical
+        stack.alignment = .centerX
+        stack.distribution = .fill
+        stack.spacing = 6
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(stack)
+
+        imageView.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+        imageView.setContentHuggingPriority(.defaultLow, for: .vertical)
+        label.setContentCompressionResistancePriority(.required, for: .vertical)
+        label.setContentHuggingPriority(.required, for: .vertical)
+
         NSLayoutConstraint.activate([
-            imageView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            imageView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            stack.topAnchor.constraint(equalTo: view.topAnchor, constant: 8),
+            stack.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -8),
+            stack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 6),
+            stack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -6),
+            // Framed image keeps its 80% cell width — caption fills the
+            // stack width so middle-truncation kicks in for long names.
             imageView.widthAnchor.constraint(equalTo: view.widthAnchor, multiplier: 0.8),
-            imageView.heightAnchor.constraint(equalTo: view.heightAnchor, multiplier: 0.8),
+            label.widthAnchor.constraint(equalTo: stack.widthAnchor),
         ])
     }
 
@@ -193,8 +238,32 @@ public class ThumbnailItem: NSCollectionViewItem {
         let imageView = NSImageView()
         imageView.imageScaling = .scaleProportionallyUpOrDown
         imageView.translatesAutoresizingMaskIntoConstraints = false
-        tile.addSubview(imageView)
         plainImageView = imageView
+
+        // Caption sits on the tile's tinted background — no extra
+        // panel needed, the existing tile fill provides the contrast.
+        let label = makeCaptionLabel(
+            font: .systemFont(ofSize: 11, weight: .medium),
+            color: .labelColor
+        )
+        captionLabel = label
+
+        // NSStackView arranges image-over-caption inside the tile.
+        // Caption is non-shrinkable so the image yields space first
+        // when the tile gets small — same Apple-idiomatic priority
+        // dance as the photo-frame style above.
+        let stack = NSStackView(views: [imageView, label])
+        stack.orientation = .vertical
+        stack.alignment = .centerX
+        stack.distribution = .fill
+        stack.spacing = 6
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        tile.addSubview(stack)
+
+        imageView.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+        imageView.setContentHuggingPriority(.defaultLow, for: .vertical)
+        label.setContentCompressionResistancePriority(.required, for: .vertical)
+        label.setContentHuggingPriority(.required, for: .vertical)
 
         // Tile = the largest centered square that fits inside the cell.
         // Two `lessThanOrEqualTo` caps + a square aspect + one default-high
@@ -213,10 +282,14 @@ public class ThumbnailItem: NSCollectionViewItem {
             tile.heightAnchor.constraint(lessThanOrEqualTo: view.heightAnchor),
             widthFill,
             heightFill,
-            imageView.centerXAnchor.constraint(equalTo: tile.centerXAnchor),
-            imageView.centerYAnchor.constraint(equalTo: tile.centerYAnchor),
-            imageView.widthAnchor.constraint(equalTo: tile.widthAnchor, multiplier: 0.9),
-            imageView.heightAnchor.constraint(equalTo: tile.heightAnchor, multiplier: 0.9),
+            // Stack fills the tile with insets — image takes the upper
+            // portion, caption sits on the tinted tile background.
+            stack.topAnchor.constraint(equalTo: tile.topAnchor, constant: 14),
+            stack.bottomAnchor.constraint(equalTo: tile.bottomAnchor, constant: -10),
+            stack.leadingAnchor.constraint(equalTo: tile.leadingAnchor, constant: 8),
+            stack.trailingAnchor.constraint(equalTo: tile.trailingAnchor, constant: -8),
+            imageView.widthAnchor.constraint(equalTo: tile.widthAnchor, multiplier: 0.82),
+            label.widthAnchor.constraint(equalTo: stack.widthAnchor),
         ])
     }
 
@@ -229,6 +302,54 @@ public class ThumbnailItem: NSCollectionViewItem {
         imageView.frame = view.bounds
         view.addSubview(imageView)
         plainImageView = imageView
+
+        // Floating pill: dark capsule centered above the bottom edge,
+        // white filename inside. The pill hugs the label width so the
+        // underlying image stays mostly visible.
+        let pill = CaptionPill()
+        pill.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(pill)
+        captionPill = pill
+
+        let label = makeCaptionLabel(
+            font: .systemFont(ofSize: 11, weight: .semibold),
+            color: .white
+        )
+        pill.addSubview(label)
+        captionLabel = label
+
+        NSLayoutConstraint.activate([
+            pill.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -8),
+            pill.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            pill.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 8),
+            pill.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -8),
+            label.topAnchor.constraint(equalTo: pill.topAnchor, constant: 3),
+            label.bottomAnchor.constraint(equalTo: pill.bottomAnchor, constant: -3),
+            label.leadingAnchor.constraint(equalTo: pill.leadingAnchor, constant: 10),
+            label.trailingAnchor.constraint(equalTo: pill.trailingAnchor, constant: -10),
+        ])
+    }
+
+    /// Shared factory for the filename label so all three styles agree
+    /// on truncation, alignment, and single-line behaviour. Color and
+    /// font come from the caller because each style sits on a different
+    /// background.
+    private func makeCaptionLabel(font: NSFont, color: NSColor) -> NSTextField {
+        let label = NSTextField(labelWithString: "")
+        label.font = font
+        label.textColor = color
+        label.alignment = .center
+        label.lineBreakMode = .byTruncatingMiddle
+        label.maximumNumberOfLines = 1
+        label.cell?.usesSingleLineMode = true
+        label.translatesAutoresizingMaskIntoConstraints = false
+        // Keep the label transparent — borderless and tile already
+        // provide the readable surface; photoFrame puts it on the
+        // window background.
+        label.drawsBackground = false
+        label.isBezeled = false
+        label.isBordered = false
+        return label
     }
 
     override public func viewDidLayout() {
@@ -253,6 +374,12 @@ public class ThumbnailItem: NSCollectionViewItem {
         case .borderless: 10
         }
         dropTargetOverlay.layer?.cornerRadius = overlayRadius
+        // Hide the filename caption on cells too small to read it —
+        // tiny grid thumbnails need their full pixel budget for the
+        // image, not for a label that would be illegible anyway.
+        let hideCaption = view.bounds.height < Self.captionMinCellHeight
+        captionLabel?.isHidden = hideCaption
+        captionPill?.isHidden = hideCaption
     }
 
     // MARK: - Configure
@@ -263,10 +390,18 @@ public class ThumbnailItem: NSCollectionViewItem {
             setImage(pendingImage)
             self.pendingImage = nil
         }
+        // The caption label only exists after the per-style setup that
+        // runs in `loadView`. If `configure(with:)` ran first, its
+        // assignment to `captionLabel?.stringValue` was a no-op — repaint
+        // from the canonical source now that the label is alive.
+        if let url = currentURL {
+            captionLabel?.stringValue = url.lastPathComponent
+        }
     }
 
     public func configure(with url: URL, maxDimension: CGFloat = 512) {
         currentURL = url
+        captionLabel?.stringValue = url.lastPathComponent
 
         // Synchronous cache hit → store for viewDidLoad (view may not exist yet)
         if let cached = ImageCache.shared.cachedImage(for: url, maxDimension: maxDimension) {
