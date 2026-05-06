@@ -15,14 +15,14 @@ public struct FileListView: NSViewRepresentable {
     @Binding var selection: Set<IndexPath>
     let folderURL: URL?
     var actionHandler: ItemActionHandler?
-    /// Initial column sort applied at first mount and at every host
-    /// re-render. `nil` means "leave default ordering". Set this from a
-    /// persisted store on the host side so a tab switch / app restart
-    /// brings back the user's last sort.
-    var initialSort: ListSortDescriptor?
-    /// Fires when the user clicks a column header, with the new
-    /// descriptor. Host should persist it so the next mount can apply
-    /// it via `initialSort`.
+    /// Active column sort, used purely for the column-header arrow
+    /// indicator. Items arrive in `layoutItems` already sorted by the
+    /// host (FolderContentLoader owns the order). `nil` clears the
+    /// header arrow.
+    var currentSort: ListSortDescriptor?
+    /// Fires when the user clicks a column header. The host is
+    /// expected to push this into the data source (so the next
+    /// `layoutItems` publish arrives in the new order) and persist it.
     var onSortChange: ((ListSortDescriptor) -> Void)?
 
     public init(
@@ -30,14 +30,14 @@ public struct FileListView: NSViewRepresentable {
         selection: Binding<Set<IndexPath>> = .constant([]),
         folderURL: URL? = nil,
         actionHandler: ItemActionHandler? = nil,
-        initialSort: ListSortDescriptor? = nil,
+        currentSort: ListSortDescriptor? = nil,
         onSortChange: ((ListSortDescriptor) -> Void)? = nil
     ) {
         _layoutItems = layoutItems
         _selection = selection
         self.folderURL = folderURL
         self.actionHandler = actionHandler
-        self.initialSort = initialSort
+        self.currentSort = currentSort
         self.onSortChange = onSortChange
     }
 
@@ -105,15 +105,13 @@ public struct FileListView: NSViewRepresentable {
         scrollView.documentView = tableView
         context.coordinator.tableView = tableView
 
-        // Apply persisted column sort (if any) before the first reload
-        // so the items are ordered correctly on the very first frame.
-        // Falls back to no descriptor when `initialSort` is nil — the
-        // user's first column-header click will produce one.
-        if let sort = initialSort {
+        // Set the column-header arrow indicator from the host's
+        // current sort. Items themselves come pre-sorted from
+        // FolderContentLoader, so we don't reorder anything here.
+        if let sort = currentSort {
             tableView.sortDescriptors = [
                 NSSortDescriptor(key: sort.key, ascending: sort.ascending),
             ]
-            context.coordinator.applyCurrentSort()
         }
 
         return scrollView
@@ -130,13 +128,7 @@ public struct FileListView: NSViewRepresentable {
 
         if coordinator.isDragging { return }
 
-        // No re-sort here — modifying `parent.layoutItems` from inside
-        // `updateNSView` is a write-during-read on the binding and
-        // pulls SwiftUI into an update loop. Initial sort is applied
-        // once in `makeNSView` from `initialSort`; subsequent column
-        // clicks sort in-place via the delegate callback. Folder
-        // reloads without an explicit re-click will land in loader
-        // order — small UX trade-off vs. a sort-loop hang.
+        syncSortDescriptors(on: coordinator.tableView)
 
         let itemsSnapshot = DynamicLayoutItemsSnapshot(items: layoutItems)
         guard coordinator.lastItemsSnapshot != itemsSnapshot else { return }
@@ -192,6 +184,24 @@ public struct FileListView: NSViewRepresentable {
 
         coordinator.lastItemIDs = newIDs
         coordinator.lastItemsSnapshot = itemsSnapshot
+    }
+
+    /// Syncs the column-header arrow with the host's `currentSort`
+    /// without touching item order. The host (FolderContentLoader) is
+    /// the source of truth for ordering and pre-sorts `layoutItems`
+    /// before they reach this view; here we only mirror the visual
+    /// indicator across tab switches and state restores.
+    private func syncSortDescriptors(on tableView: NSTableView?) {
+        guard let tableView else { return }
+        let desired: [NSSortDescriptor] = currentSort.map {
+            [NSSortDescriptor(key: $0.key, ascending: $0.ascending)]
+        } ?? []
+        let existing = tableView.sortDescriptors
+        guard existing.count != desired.count
+            || existing.first?.key != desired.first?.key
+            || existing.first?.ascending != desired.first?.ascending
+        else { return }
+        tableView.sortDescriptors = desired
     }
 
     private func syncSelection(with coordinator: ListCoordinator) {

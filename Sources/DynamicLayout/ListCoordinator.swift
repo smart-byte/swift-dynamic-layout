@@ -101,61 +101,25 @@ public class ListCoordinator: NSObject, NSTableViewDataSource, NSTableViewDelega
 
     public func tableView(_ tableView: NSTableView, sortDescriptorsDidChange _: [NSSortDescriptor]) {
         guard let descriptor = tableView.sortDescriptors.first else { return }
-        sort(by: descriptor)
+        let newSort = ListSortDescriptor(
+            key: descriptor.key ?? "",
+            ascending: descriptor.ascending
+        )
+        // Filter out the fires that come from us syncing the
+        // descriptor programmatically — `currentSort` already matches,
+        // so a bubble would just trigger a redundant store write.
+        guard newSort != parent.currentSort else { return }
+        // Bubble up. The host (ContentView) is expected to call
+        // `FolderContentLoader.setSort(_:)` synchronously, which
+        // mutates `parent.layoutItems` in place. We then reload the
+        // table on the same frame as the arrow flip so the user sees
+        // arrow + items update atomically; the SwiftUI body re-eval
+        // that follows the binding write hits the snapshot guard in
+        // `updateNSView` and short-circuits.
+        parent.onSortChange?(newSort)
         lastItemIDs = parent.layoutItems.map(\.id)
         lastItemsSnapshot = DynamicLayoutItemsSnapshot(items: parent.layoutItems)
         tableView.reloadData()
-        // Bubble up so the host can persist this descriptor and feed
-        // it back as `initialSort` on the next mount.
-        parent.onSortChange?(ListSortDescriptor(
-            key: descriptor.key ?? "",
-            ascending: descriptor.ascending
-        ))
-    }
-
-    /// Re-applies the current `tableView.sortDescriptors` to
-    /// `parent.layoutItems`. Called from `FileListView.makeNSView`
-    /// after seeding the descriptor from a persisted `initialSort`,
-    /// so the rendered order matches the user's prior choice on the
-    /// first frame instead of waiting for the user to click a header.
-    func applyCurrentSort() {
-        guard let descriptor = tableView?.sortDescriptors.first else { return }
-        sort(by: descriptor)
-        lastItemIDs = parent.layoutItems.map(\.id)
-        lastItemsSnapshot = DynamicLayoutItemsSnapshot(items: parent.layoutItems)
-    }
-
-    private func sort(by descriptor: NSSortDescriptor) {
-        switch descriptor.key {
-        case "name":
-            let ascending = descriptor.ascending
-            parent.layoutItems.sort {
-                ascending
-                    ? $0.url.lastPathComponent.localizedCaseInsensitiveCompare($1.url.lastPathComponent) == .orderedAscending
-                    : $0.url.lastPathComponent.localizedCaseInsensitiveCompare($1.url.lastPathComponent) == .orderedDescending
-            }
-        case "date":
-            let ascending = descriptor.ascending
-            parent.layoutItems.sort {
-                let d0 = $0.modificationDate ?? .distantPast
-                let d1 = $1.modificationDate ?? .distantPast
-                return ascending ? d0 < d1 : d0 > d1
-            }
-        case "size":
-            let ascending = descriptor.ascending
-            parent.layoutItems.sort {
-                ascending ? $0.fileSize < $1.fileSize : $0.fileSize > $1.fileSize
-            }
-        case "kind":
-            let ascending = descriptor.ascending
-            parent.layoutItems.sort {
-                ascending
-                    ? $0.fileKind.localizedCaseInsensitiveCompare($1.fileKind) == .orderedAscending
-                    : $0.fileKind.localizedCaseInsensitiveCompare($1.fileKind) == .orderedDescending
-            }
-        default:
-            break
-        }
     }
 
     // MARK: - Selection
