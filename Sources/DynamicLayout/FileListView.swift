@@ -90,9 +90,12 @@ public struct FileListView: NSViewRepresentable {
         tableView.dataSource = context.coordinator
         tableView.delegate = context.coordinator
 
-        // Enable drag & drop reordering
+        // Drag & drop: move into sibling subfolder rows, or copy/move
+        // files dragged in from outside the pane. Internal in-pane
+        // reorder is intentionally disabled — column sort is the only
+        // mechanism that determines list order.
         tableView.registerForDraggedTypes([.fileURL])
-        tableView.setDraggingSourceOperationMask(.every, forLocal: true)
+        tableView.setDraggingSourceOperationMask([.move, .copy], forLocal: true)
         tableView.setDraggingSourceOperationMask([.copy, .delete], forLocal: false)
 
         // Double-click → detail preview

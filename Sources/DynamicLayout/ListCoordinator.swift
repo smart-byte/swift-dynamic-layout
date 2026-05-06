@@ -16,7 +16,6 @@ public class ListCoordinator: NSObject, NSTableViewDataSource, NSTableViewDelega
     var actionHandler: ItemActionHandler?
     var lastItemIDs: [UUID] = []
     var lastItemsSnapshot: DynamicLayoutItemsSnapshot?
-    var draggedRows: IndexSet = []
     var isDragging = false
     let dragSession = DragSessionState()
 
@@ -209,10 +208,9 @@ public class ListCoordinator: NSObject, NSTableViewDataSource, NSTableViewDelega
 
     public func tableView(
         _ tableView: NSTableView, draggingSession session: NSDraggingSession,
-        willBeginAt _: NSPoint, forRowIndexes rowIndexes: IndexSet
+        willBeginAt _: NSPoint, forRowIndexes _: IndexSet
     ) {
         isDragging = true
-        draggedRows = rowIndexes
 
         // List view always uses the .compact drag-image style at source.
         // The destination overrides this in its own validateDrop.
@@ -238,7 +236,6 @@ public class ListCoordinator: NSObject, NSTableViewDataSource, NSTableViewDelega
         endedAt _: NSPoint, operation _: NSDragOperation
     ) {
         isDragging = false
-        draggedRows = []
         (tableView as? NiblessTableView)?.setDropTargetHighlight(false)
 
         dragSession.end()
@@ -246,7 +243,7 @@ public class ListCoordinator: NSObject, NSTableViewDataSource, NSTableViewDelega
 
     public func tableView(
         _ tableView: NSTableView, validateDrop info: NSDraggingInfo,
-        proposedRow row: Int, proposedDropOperation dropOperation: NSTableView.DropOperation
+        proposedRow row: Int, proposedDropOperation _: NSTableView.DropOperation
     ) -> NSDragOperation {
         let nibless = tableView as? NiblessTableView
 
@@ -257,18 +254,13 @@ public class ListCoordinator: NSObject, NSTableViewDataSource, NSTableViewDelega
             return []
         }
 
-        // Internal reorder: in-pane move semantics with `.above` indicator.
-        if info.draggingSource as? NSTableView == tableView {
-            if dropOperation == .on {
-                tableView.setDropRow(row, dropOperation: .above)
-            }
-            nibless?.setDropTargetHighlight(false)
-            return .move
-        }
+        let isInternal = info.draggingSource as? NSTableView == tableView
 
         // Folder-row drop target: when the cursor is over a directory row,
         // route the drop INTO that subfolder. NSTableView paints the row
         // blue automatically when we keep `.on` with that row index.
+        // Works for both external drags and internal drags (file ↦
+        // sibling folder is a real move, not a no-op).
         if row >= 0,
            row < parent.layoutItems.count,
            let folderURL = directoryURL(atRow: row),
@@ -279,6 +271,16 @@ public class ListCoordinator: NSObject, NSTableViewDataSource, NSTableViewDelega
             return FileDropPerformer.proposedOperation(
                 for: info, destinationFolder: folderURL
             )
+        }
+
+        // Internal drag landing on whitespace or a non-folder row would
+        // mean "drop into the same folder we came from" — no-op. Refuse
+        // it explicitly so the user gets the deny cursor instead of a
+        // misleading copy/move highlight.
+        if isInternal {
+            tableView.setDropRow(-1, dropOperation: .on)
+            nibless?.setDropTargetHighlight(false)
+            return []
         }
 
         // Whitespace drop into the pane's own folder. -1 + .on suppresses
@@ -312,30 +314,6 @@ public class ListCoordinator: NSObject, NSTableViewDataSource, NSTableViewDelega
         // gets reset in the ended hook.
         if dragSession.isCancelled {
             return false
-        }
-
-        let isInternal = info.draggingSource as? NSTableView == tableView
-
-        if isInternal, let draggedRow = draggedRows.first {
-            let targetRow = min(row, parent.layoutItems.count)
-            let adjustedTarget: Int = if targetRow > draggedRow {
-                min(targetRow - 1, parent.layoutItems.count - 1)
-            } else {
-                targetRow
-            }
-            guard adjustedTarget != draggedRow else { return false }
-
-            let movedItem = parent.layoutItems.remove(at: draggedRow)
-            parent.layoutItems.insert(movedItem, at: min(adjustedTarget, parent.layoutItems.count))
-
-            lastItemIDs = parent.layoutItems.map(\.id)
-            lastItemsSnapshot = DynamicLayoutItemsSnapshot(items: parent.layoutItems)
-
-            tableView.beginUpdates()
-            tableView.moveRow(at: draggedRow, to: adjustedTarget)
-            tableView.endUpdates()
-
-            return true
         }
 
         // Folder-row drop: validateDrop set `.on` with that row's index,
