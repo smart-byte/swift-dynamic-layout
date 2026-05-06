@@ -1,5 +1,5 @@
 //
-//  FileCollectionView+LayoutFactory.swift
+//  CollectionLayoutView+LayoutFactory.swift
 //
 //
 //  Created by Mario Heubach on 29.04.24.
@@ -8,9 +8,9 @@
 import AppKit
 
 /// Layout construction + property mutation. Pulled out of
-/// `FileCollectionView.swift` to keep that file under SwiftLint's
+/// `CollectionLayoutView.swift` to keep that file under SwiftLint's
 /// 400-line ceiling — no behaviour change.
-extension FileCollectionView {
+extension CollectionLayoutView {
     /// Build a fresh layout for the current `layoutMode` / `itemStyle`.
     /// Reads everything off `self` so callers stay one-liners.
     func createLayout() -> NSCollectionViewLayout {

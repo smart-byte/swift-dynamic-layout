@@ -19,7 +19,7 @@ import Foundation
 /// The host app (Voila) keeps a richer `FileLayoutItem` (with `url`,
 /// `fileSize`, `modificationDate`, `fileKind`) and projects it to
 /// `LayoutItemFrame` via `FileLayoutItem.asFrame` before handing the array
-/// to `FileCollectionView`. Item identity (UUID) is shared, so the Coordinator
+/// to `CollectionLayoutView`. Item identity (UUID) is shared, so the Coordinator
 /// can resolve a frame back to its `FileLayoutItem` by matching `id`.
 public struct LayoutItemFrame: Identifiable, Equatable, Sendable {
     public let id: UUID

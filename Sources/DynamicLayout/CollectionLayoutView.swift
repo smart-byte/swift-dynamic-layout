@@ -3,9 +3,9 @@
 import Quartz
 import SwiftUI
 
-// MARK: - FileCollectionView (for verticalFlow, horizontalFlow, justified)
+// MARK: - CollectionLayoutView (for verticalFlow, horizontalFlow, justified)
 
-public struct FileCollectionView: NSViewRepresentable {
+public struct CollectionLayoutView: NSViewRepresentable {
     @Binding var layoutItems: [LayoutItemFrame]
     @Binding var selection: Set<IndexPath>
     @Binding var layoutMode: LayoutMode
@@ -13,6 +13,15 @@ public struct FileCollectionView: NSViewRepresentable {
     @Binding var itemSpacing: CGFloat
     @Binding var columns: Int
     @Binding var targetSize: CGFloat
+    /// Voila-specific hint passed through to the Coordinator for two purposes:
+    /// (1) scroll-position cache keyed by folder URL, so the view restores the
+    ///     scroll offset when navigating back to a previously visited folder;
+    /// (2) background-context-menu target (New Folder, Reveal in Finder) when
+    ///     the user right-clicks on empty canvas.
+    ///
+    /// Long-term this could be replaced by a `backgroundMenuProvider: ((URL) -> NSMenu)?`
+    /// callback so the package stays fully file-domain-agnostic. For now it
+    /// remains as an optional hint — passing `nil` disables both features gracefully.
     let folderURL: URL?
     var actionHandler: (any ItemActionHandler)?
     /// Called during drag validation to determine the allowed drop operation.
@@ -303,7 +312,7 @@ public struct FileCollectionView: NSViewRepresentable {
 // MARK: - Coordinator
 
 public class Coordinator: NSObject, NSCollectionViewDataSource, NSCollectionViewDelegate {
-    var parent: FileCollectionView
+    var parent: CollectionLayoutView
 
     var lastLayoutMode: LayoutMode?
     var lastItemStyle: ItemStyle?
@@ -329,7 +338,7 @@ public class Coordinator: NSObject, NSCollectionViewDataSource, NSCollectionView
     static var scrollCache: [URL: Int] = [:]
     var currentFolderURL: URL?
 
-    init(_ parent: FileCollectionView) {
+    init(_ parent: CollectionLayoutView) {
         self.parent = parent
         syncImageProvider = parent.syncImageProvider
         asyncImageProvider = parent.asyncImageProvider

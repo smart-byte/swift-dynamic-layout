@@ -13,9 +13,11 @@ import AppKit
 /// repeatedly across a list of candidate apps — building the Open-With submenu
 /// on every right-click was visibly laggy. This cache memoises the lookup for
 /// the lifetime of the process.
+/// Not public: AppIconCache is consumed only by ItemContextMenuBuilder
+/// inside the package. No external consumer references it directly.
 @MainActor
-public final class AppIconCache {
-    public static let shared = AppIconCache()
+final class AppIconCache {
+    static let shared = AppIconCache()
 
     private let cache: NSCache<NSURL, NSImage> = {
         let cache = NSCache<NSURL, NSImage>()
@@ -29,7 +31,7 @@ public final class AppIconCache {
     /// returned `NSImage` is the cached instance — callers that need a
     /// different size must copy it before mutating `size`, otherwise the
     /// mutation will leak across cache hits.
-    public func icon(for applicationURL: URL) -> NSImage {
+    func icon(for applicationURL: URL) -> NSImage {
         let key = applicationURL as NSURL
         if let cached = cache.object(forKey: key) {
             return cached
