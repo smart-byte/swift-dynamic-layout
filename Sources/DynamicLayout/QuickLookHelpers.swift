@@ -8,9 +8,9 @@
 import Quartz
 
 /// Shared Quick Look utilities used by both collection and list views.
-enum QuickLookHelpers {
+public enum QuickLookHelpers {
     /// Toggle QL panel visibility.
-    static func togglePanel() {
+    public static func togglePanel() {
         if QLPreviewPanel.sharedPreviewPanelExists(),
            QLPreviewPanel.shared().isVisible
         {
@@ -21,7 +21,7 @@ enum QuickLookHelpers {
     }
 
     /// Reload QL panel data if currently visible.
-    static func reloadPanelIfVisible() {
+    public static func reloadPanelIfVisible() {
         if QLPreviewPanel.sharedPreviewPanelExists(),
            QLPreviewPanel.shared().isVisible
         {

@@ -16,8 +16,8 @@ import AppKit
 /// Open in Terminal) can read folder context without forcing every call
 /// site to grow new closures.
 @MainActor
-enum BackgroundContextMenuBuilder {
-    static func menu(
+public enum BackgroundContextMenuBuilder {
+    public static func menu(
         forFolder _: URL,
         newFolder: (() -> Void)? = nil,
         revealInFinder: (() -> Void)? = nil

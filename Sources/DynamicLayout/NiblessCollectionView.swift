@@ -10,20 +10,20 @@ import Quartz
 
 /// NSCollectionView subclass that bypasses nib loading, supports Quick Look,
 /// context menus, double-click, and a custom drop indicator.
-class NiblessCollectionView: NSCollectionView {
+public class NiblessCollectionView: NSCollectionView {
     private var programmaticClasses: [NSUserInterfaceItemIdentifier: NSCollectionViewItem.Type] = [:]
 
-    weak var quickLookCoordinator: Coordinator?
-    var actionHandler: ItemActionHandler?
+    public weak var quickLookCoordinator: Coordinator?
+    public var actionHandler: (any ItemActionHandler)?
 
-    func registerProgrammatic(
+    public func registerProgrammatic(
         _ itemClass: NSCollectionViewItem.Type,
         forItemWithIdentifier identifier: NSUserInterfaceItemIdentifier
     ) {
         programmaticClasses[identifier] = itemClass
     }
 
-    override func makeItem(
+    override public func makeItem(
         withIdentifier identifier: NSUserInterfaceItemIdentifier,
         for _: IndexPath
     ) -> NSCollectionViewItem {
@@ -37,7 +37,7 @@ class NiblessCollectionView: NSCollectionView {
 
     // MARK: - Quick Look
 
-    override func keyDown(with event: NSEvent) {
+    override public func keyDown(with event: NSEvent) {
         if event.characters == " " {
             QuickLookHelpers.togglePanel()
         } else {
@@ -45,23 +45,23 @@ class NiblessCollectionView: NSCollectionView {
         }
     }
 
-    override func acceptsPreviewPanelControl(_: QLPreviewPanel!) -> Bool {
+    override public func acceptsPreviewPanelControl(_: QLPreviewPanel!) -> Bool {
         true
     }
 
-    override func beginPreviewPanelControl(_ panel: QLPreviewPanel!) {
+    override public func beginPreviewPanelControl(_ panel: QLPreviewPanel!) {
         panel.dataSource = quickLookCoordinator
         panel.delegate = quickLookCoordinator
     }
 
-    override func endPreviewPanelControl(_ panel: QLPreviewPanel!) {
+    override public func endPreviewPanelControl(_ panel: QLPreviewPanel!) {
         panel.dataSource = nil
         panel.delegate = nil
     }
 
     // MARK: - Context Menu
 
-    override func rightMouseDown(with event: NSEvent) {
+    override public func rightMouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         let clickedIndexPath = indexPathForItem(at: point)
 
@@ -117,7 +117,7 @@ class NiblessCollectionView: NSCollectionView {
 
     // MARK: - Double-Click
 
-    override func mouseDown(with event: NSEvent) {
+    override public func mouseDown(with event: NSEvent) {
         super.mouseDown(with: event)
 
         guard event.clickCount == 2 else { return }
@@ -152,27 +152,27 @@ class NiblessCollectionView: NSCollectionView {
     // MARK: - Custom Drop Indicator
 
     private lazy var dropIndicatorView: NSView = {
-        let v = NSView()
-        v.wantsLayer = true
-        v.layer?.backgroundColor = NSColor.controlAccentColor.cgColor
-        v.layer?.cornerRadius = 1.5
-        v.isHidden = true
-        addSubview(v)
-        return v
+        let view = NSView()
+        view.wantsLayer = true
+        view.layer?.backgroundColor = NSColor.controlAccentColor.cgColor
+        view.layer?.cornerRadius = 1.5
+        view.isHidden = true
+        addSubview(view)
+        return view
     }()
 
-    func showDropIndicator(at frame: CGRect) {
+    public func showDropIndicator(at frame: CGRect) {
         dropIndicatorView.frame = frame
         dropIndicatorView.isHidden = false
     }
 
-    func hideDropIndicator() {
+    public func hideDropIndicator() {
         dropIndicatorView.isHidden = true
     }
 
     /// Hide the default gap indicator that NSCollectionView adds
     /// for .before drop operations — we draw our own.
-    override func didAddSubview(_ subview: NSView) {
+    override public func didAddSubview(_ subview: NSView) {
         super.didAddSubview(subview)
         let className = String(describing: type(of: subview))
         if className.contains("Gap") || className.contains("Drop") {
@@ -190,7 +190,7 @@ class NiblessCollectionView: NSCollectionView {
     /// `.asDropTarget` highlight via `ThumbnailItem.highlightState`).
     /// Apple has no built-in for "drop into the whole view", so this is
     /// custom.
-    func setDropTargetHighlight(_ highlighted: Bool) {
+    public func setDropTargetHighlight(_ highlighted: Bool) {
         guard let scrollView = enclosingScrollView else { return }
         scrollView.wantsLayer = true
         let layer = scrollView.layer
@@ -202,7 +202,7 @@ class NiblessCollectionView: NSCollectionView {
     /// Cleans up the pane border + insertion line when the cursor leaves
     /// without a drop. Neither `endedAt` (target side) nor `acceptDrop`
     /// fires in that case.
-    override func draggingExited(_ sender: NSDraggingInfo?) {
+    override public func draggingExited(_ sender: NSDraggingInfo?) {
         super.draggingExited(sender)
         setDropTargetHighlight(false)
         hideDropIndicator()

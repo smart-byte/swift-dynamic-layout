@@ -9,8 +9,8 @@ import AppKit
 
 /// Builds a shared context menu for file items in both collection and list views.
 @MainActor
-enum ItemContextMenuBuilder {
-    static func menu(
+public enum ItemContextMenuBuilder {
+    public static func menu(
         for urls: [URL],
         quickLookToggle: @escaping () -> Void,
         detailPreview: @escaping ([URL]) -> Void,

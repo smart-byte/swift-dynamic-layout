@@ -7,11 +7,13 @@
 
 import AppKit
 
-final class DragSessionState {
-    private(set) var isCancelled = false
+public final class DragSessionState {
+    public private(set) var isCancelled = false
     private var keyMonitor: Any?
 
-    func begin() {
+    public init() {}
+
+    public func begin() {
         end()
         isCancelled = false
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
@@ -22,7 +24,7 @@ final class DragSessionState {
         }
     }
 
-    func end() {
+    public func end() {
         if let keyMonitor {
             NSEvent.removeMonitor(keyMonitor)
             self.keyMonitor = nil

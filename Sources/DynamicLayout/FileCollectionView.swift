@@ -19,7 +19,14 @@ public struct FileCollectionView: NSViewRepresentable {
     @Binding var columns: Int
     @Binding var targetSize: CGFloat
     let folderURL: URL?
-    var actionHandler: ItemActionHandler?
+    var actionHandler: (any ItemActionHandler)?
+    /// Called during drag validation to determine the allowed drop operation.
+    /// The host app binds `FileDropPerformer.proposedOperation` here so the
+    /// package stays free of FileManager knowledge.
+    var dropValidator: DropValidator?
+    /// Called when a drop is accepted. The host app binds
+    /// `FileDropPerformer.perform` here.
+    var dropPerformer: DropPerformer?
 
     public init(
         layoutItems: Binding<[DynamicLayoutItem]>,
@@ -30,7 +37,9 @@ public struct FileCollectionView: NSViewRepresentable {
         columns: Binding<Int> = .constant(5),
         targetSize: Binding<CGFloat> = .constant(200),
         folderURL: URL? = nil,
-        actionHandler: ItemActionHandler? = nil
+        actionHandler: (any ItemActionHandler)? = nil,
+        dropValidator: DropValidator? = nil,
+        dropPerformer: DropPerformer? = nil
     ) {
         _layoutItems = layoutItems
         _selection = selection
@@ -41,6 +50,8 @@ public struct FileCollectionView: NSViewRepresentable {
         _targetSize = targetSize
         self.folderURL = folderURL
         self.actionHandler = actionHandler
+        self.dropValidator = dropValidator
+        self.dropPerformer = dropPerformer
     }
 
     public func makeNSView(context: Context) -> NSScrollView {
@@ -54,6 +65,8 @@ public struct FileCollectionView: NSViewRepresentable {
         collectionView.delegate = context.coordinator
         collectionView.quickLookCoordinator = context.coordinator
         context.coordinator.actionHandler = actionHandler
+        context.coordinator.dropValidator = dropValidator
+        context.coordinator.dropPerformer = dropPerformer
         context.coordinator.collectionView = collectionView
         collectionView.actionHandler = actionHandler
 
@@ -96,6 +109,8 @@ public struct FileCollectionView: NSViewRepresentable {
 
         coordinator.parent = self
         coordinator.actionHandler = actionHandler
+        coordinator.dropValidator = dropValidator
+        coordinator.dropPerformer = dropPerformer
         // Keep the collection view's pointer in sync with the latest handler;
         // each body re-render hands us a freshly-allocated handler instance.
         (collectionView as? NiblessCollectionView)?.actionHandler = actionHandler
@@ -286,7 +301,9 @@ public class Coordinator: NSObject, NSCollectionViewDataSource, NSCollectionView
     var lastSpacing: CGFloat = -1
     var lastColumns: Int = -1
     var lastTargetSize: CGFloat?
-    var actionHandler: ItemActionHandler?
+    var actionHandler: (any ItemActionHandler)?
+    var dropValidator: DropValidator?
+    var dropPerformer: DropPerformer?
     weak var collectionView: NSCollectionView?
     var draggedIndexPaths: Set<IndexPath> = []
     var isDragging = false

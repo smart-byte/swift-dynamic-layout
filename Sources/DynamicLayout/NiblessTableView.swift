@@ -8,13 +8,13 @@
 import Quartz
 
 /// NSTableView subclass with Quick Look (Space), context menu, and double-click support.
-class NiblessTableView: NSTableView {
-    weak var quickLookCoordinator: ListCoordinator?
-    var actionHandler: ItemActionHandler?
+public class NiblessTableView: NSTableView {
+    public weak var quickLookCoordinator: (any NiblessTableViewCoordinating)?
+    public var actionHandler: (any ItemActionHandler)?
 
     // MARK: - Quick Look
 
-    override func keyDown(with event: NSEvent) {
+    override public func keyDown(with event: NSEvent) {
         if event.characters == " " {
             QuickLookHelpers.togglePanel()
         } else {
@@ -22,23 +22,23 @@ class NiblessTableView: NSTableView {
         }
     }
 
-    override func acceptsPreviewPanelControl(_: QLPreviewPanel!) -> Bool {
+    override public func acceptsPreviewPanelControl(_: QLPreviewPanel!) -> Bool {
         true
     }
 
-    override func beginPreviewPanelControl(_ panel: QLPreviewPanel!) {
+    override public func beginPreviewPanelControl(_ panel: QLPreviewPanel!) {
         panel.dataSource = quickLookCoordinator
         panel.delegate = quickLookCoordinator
     }
 
-    override func endPreviewPanelControl(_ panel: QLPreviewPanel!) {
+    override public func endPreviewPanelControl(_ panel: QLPreviewPanel!) {
         panel.dataSource = nil
         panel.delegate = nil
     }
 
     // MARK: - Context Menu
 
-    override func menu(for event: NSEvent) -> NSMenu? {
+    override public func menu(for event: NSEvent) -> NSMenu? {
         let point = convert(event.locationInWindow, from: nil)
         let clickedRow = row(at: point)
 
@@ -89,7 +89,7 @@ class NiblessTableView: NSTableView {
     /// a Finder / cross-pane drag hovers over this list pane's whitespace.
     /// Folder-row highlights come from `setDropRow(_:dropOperation:.on)` —
     /// NSTableView paints those automatically.
-    func setDropTargetHighlight(_ highlighted: Bool) {
+    public func setDropTargetHighlight(_ highlighted: Bool) {
         guard let scrollView = enclosingScrollView else { return }
         scrollView.wantsLayer = true
         let layer = scrollView.layer
@@ -98,7 +98,7 @@ class NiblessTableView: NSTableView {
         layer?.cornerRadius = highlighted ? 6 : 0
     }
 
-    override func draggingExited(_ sender: NSDraggingInfo?) {
+    override public func draggingExited(_ sender: NSDraggingInfo?) {
         super.draggingExited(sender)
         setDropTargetHighlight(false)
     }

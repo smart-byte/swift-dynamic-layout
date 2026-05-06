@@ -8,13 +8,13 @@
 import CoreGraphics
 import Foundation
 
-struct DynamicLayoutItemsSnapshot: Equatable {
-    let count: Int
-    let firstID: UUID?
-    let lastID: UUID?
-    let orderSignature: Int
+public struct DynamicLayoutItemsSnapshot: Equatable {
+    public let count: Int
+    public let firstID: UUID?
+    public let lastID: UUID?
+    public let orderSignature: Int
 
-    init(items: [DynamicLayoutItem]) {
+    public init(items: [DynamicLayoutItem]) {
         count = items.count
         firstID = items.first?.id
         lastID = items.last?.id
@@ -28,7 +28,7 @@ struct DynamicLayoutItemsSnapshot: Equatable {
     }
 }
 
-func sanitizedSelection(
+public func sanitizedSelection(
     _ selection: Set<IndexPath>,
     itemCount: Int
 ) -> Set<IndexPath> {

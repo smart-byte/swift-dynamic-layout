@@ -135,9 +135,8 @@ public extension Coordinator {
         if let hitIndexPath = collectionView.indexPathForItem(at: point),
            hitIndexPath.item < parent.layoutItems.count,
            let folderURL = directoryURL(at: hitIndexPath),
-           FileDropPerformer.proposedOperation(for: info, destinationFolder: folderURL) != []
+           let op = dropValidator?(info, folderURL), op != []
         {
-            let op = FileDropPerformer.proposedOperation(for: info, destinationFolder: folderURL)
             proposedDropOperation.pointee = .on
             proposedDropIndexPath.pointee = NSIndexPath(forItem: hitIndexPath.item, inSection: 0)
             nibless?.setDropTargetHighlight(false)
@@ -151,10 +150,7 @@ public extension Coordinator {
         proposedDropIndexPath.pointee = NSIndexPath(
             forItem: parent.layoutItems.count, inSection: 0
         )
-        let op = FileDropPerformer.proposedOperation(
-            for: info,
-            destinationFolder: parent.folderURL
-        )
+        let op = dropValidator?(info, parent.folderURL) ?? []
         nibless?.setDropTargetHighlight(op != [])
         return op
     }
@@ -256,9 +252,8 @@ public extension Coordinator {
         draggingInfo: NSDraggingInfo,
         destinationOverride: URL? = nil
     ) -> Bool {
-        let destinationFolder = destinationOverride ?? parent.folderURL
-        guard FileDropPerformer.perform(info: draggingInfo, into: destinationFolder)
-        else {
+        let destination = destinationOverride ?? parent.folderURL
+        guard dropPerformer?(draggingInfo, destination) == true else {
             pendingDropIndex = nil
             isDragging = false
             draggedIndexPaths = []
@@ -267,8 +262,8 @@ public extension Coordinator {
         pendingDropIndex = nil
 
         // No manual layoutItems mutation: the destination pane's file watcher
-        // (Phase 10) picks up the new entries and animates the diff in. The
-        // source pane's watcher does the same on its side for moves.
+        // picks up the new entries and animates the diff in. The source pane's
+        // watcher does the same on its side for moves.
         DispatchQueue.main.async { [weak self] in
             self?.isDragging = false
             self?.draggedIndexPaths = []
