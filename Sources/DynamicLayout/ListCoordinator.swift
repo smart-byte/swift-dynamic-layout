@@ -102,7 +102,31 @@ public class ListCoordinator: NSObject, NSTableViewDataSource, NSTableViewDelega
 
     public func tableView(_ tableView: NSTableView, sortDescriptorsDidChange _: [NSSortDescriptor]) {
         guard let descriptor = tableView.sortDescriptors.first else { return }
+        sort(by: descriptor)
+        lastItemIDs = parent.layoutItems.map(\.id)
+        lastItemsSnapshot = DynamicLayoutItemsSnapshot(items: parent.layoutItems)
+        tableView.reloadData()
+        // Bubble up so the host can persist this descriptor and feed
+        // it back as `initialSort` on the next mount.
+        parent.onSortChange?(ListSortDescriptor(
+            key: descriptor.key ?? "",
+            ascending: descriptor.ascending
+        ))
+    }
 
+    /// Re-applies the current `tableView.sortDescriptors` to
+    /// `parent.layoutItems`. Called from `FileListView.makeNSView`
+    /// after seeding the descriptor from a persisted `initialSort`,
+    /// so the rendered order matches the user's prior choice on the
+    /// first frame instead of waiting for the user to click a header.
+    func applyCurrentSort() {
+        guard let descriptor = tableView?.sortDescriptors.first else { return }
+        sort(by: descriptor)
+        lastItemIDs = parent.layoutItems.map(\.id)
+        lastItemsSnapshot = DynamicLayoutItemsSnapshot(items: parent.layoutItems)
+    }
+
+    private func sort(by descriptor: NSSortDescriptor) {
         switch descriptor.key {
         case "name":
             let ascending = descriptor.ascending
@@ -133,10 +157,6 @@ public class ListCoordinator: NSObject, NSTableViewDataSource, NSTableViewDelega
         default:
             break
         }
-
-        lastItemIDs = parent.layoutItems.map(\.id)
-        lastItemsSnapshot = DynamicLayoutItemsSnapshot(items: parent.layoutItems)
-        tableView.reloadData()
     }
 
     // MARK: - Selection

@@ -15,17 +15,30 @@ public struct FileListView: NSViewRepresentable {
     @Binding var selection: Set<IndexPath>
     let folderURL: URL?
     var actionHandler: ItemActionHandler?
+    /// Initial column sort applied at first mount and at every host
+    /// re-render. `nil` means "leave default ordering". Set this from a
+    /// persisted store on the host side so a tab switch / app restart
+    /// brings back the user's last sort.
+    var initialSort: ListSortDescriptor?
+    /// Fires when the user clicks a column header, with the new
+    /// descriptor. Host should persist it so the next mount can apply
+    /// it via `initialSort`.
+    var onSortChange: ((ListSortDescriptor) -> Void)?
 
     public init(
         layoutItems: Binding<[DynamicLayoutItem]>,
         selection: Binding<Set<IndexPath>> = .constant([]),
         folderURL: URL? = nil,
-        actionHandler: ItemActionHandler? = nil
+        actionHandler: ItemActionHandler? = nil,
+        initialSort: ListSortDescriptor? = nil,
+        onSortChange: ((ListSortDescriptor) -> Void)? = nil
     ) {
         _layoutItems = layoutItems
         _selection = selection
         self.folderURL = folderURL
         self.actionHandler = actionHandler
+        self.initialSort = initialSort
+        self.onSortChange = onSortChange
     }
 
     public func makeNSView(context: Context) -> NSScrollView {
@@ -89,6 +102,17 @@ public struct FileListView: NSViewRepresentable {
         scrollView.documentView = tableView
         context.coordinator.tableView = tableView
 
+        // Apply persisted column sort (if any) before the first reload
+        // so the items are ordered correctly on the very first frame.
+        // Falls back to no descriptor when `initialSort` is nil — the
+        // user's first column-header click will produce one.
+        if let sort = initialSort {
+            tableView.sortDescriptors = [
+                NSSortDescriptor(key: sort.key, ascending: sort.ascending),
+            ]
+            context.coordinator.applyCurrentSort()
+        }
+
         return scrollView
     }
 
@@ -102,6 +126,14 @@ public struct FileListView: NSViewRepresentable {
         syncSelection(with: coordinator)
 
         if coordinator.isDragging { return }
+
+        // No re-sort here — modifying `parent.layoutItems` from inside
+        // `updateNSView` is a write-during-read on the binding and
+        // pulls SwiftUI into an update loop. Initial sort is applied
+        // once in `makeNSView` from `initialSort`; subsequent column
+        // clicks sort in-place via the delegate callback. Folder
+        // reloads without an explicit re-click will land in loader
+        // order — small UX trade-off vs. a sort-loop hang.
 
         let itemsSnapshot = DynamicLayoutItemsSnapshot(items: layoutItems)
         guard coordinator.lastItemsSnapshot != itemsSnapshot else { return }
