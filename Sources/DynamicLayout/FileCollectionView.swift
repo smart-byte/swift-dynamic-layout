@@ -5,6 +5,8 @@
 //  Created by Mario Heubach on 29.04.24.
 //
 
+// swiftlint:disable file_length
+
 import Quartz
 import SwiftUI
 
@@ -27,6 +29,10 @@ public struct FileCollectionView: NSViewRepresentable {
     /// Called when a drop is accepted. The host app binds
     /// `FileDropPerformer.perform` here.
     var dropPerformer: DropPerformer?
+    /// Synchronous cache lookup — returns `nil` on miss. See `ImageProvider.swift`.
+    var syncImageProvider: SyncImageProvider
+    /// Async image loader — delivers on the main queue. See `ImageProvider.swift`.
+    var asyncImageProvider: ImageProvider
 
     public init(
         layoutItems: Binding<[DynamicLayoutItem]>,
@@ -39,7 +45,9 @@ public struct FileCollectionView: NSViewRepresentable {
         folderURL: URL? = nil,
         actionHandler: (any ItemActionHandler)? = nil,
         dropValidator: DropValidator? = nil,
-        dropPerformer: DropPerformer? = nil
+        dropPerformer: DropPerformer? = nil,
+        syncImageProvider: @escaping SyncImageProvider,
+        asyncImageProvider: @escaping ImageProvider
     ) {
         _layoutItems = layoutItems
         _selection = selection
@@ -52,6 +60,8 @@ public struct FileCollectionView: NSViewRepresentable {
         self.actionHandler = actionHandler
         self.dropValidator = dropValidator
         self.dropPerformer = dropPerformer
+        self.syncImageProvider = syncImageProvider
+        self.asyncImageProvider = asyncImageProvider
     }
 
     public func makeNSView(context: Context) -> NSScrollView {
@@ -111,6 +121,8 @@ public struct FileCollectionView: NSViewRepresentable {
         coordinator.actionHandler = actionHandler
         coordinator.dropValidator = dropValidator
         coordinator.dropPerformer = dropPerformer
+        coordinator.syncImageProvider = syncImageProvider
+        coordinator.asyncImageProvider = asyncImageProvider
         // Keep the collection view's pointer in sync with the latest handler;
         // each body re-render hands us a freshly-allocated handler instance.
         (collectionView as? NiblessCollectionView)?.actionHandler = actionHandler
@@ -304,6 +316,8 @@ public class Coordinator: NSObject, NSCollectionViewDataSource, NSCollectionView
     var actionHandler: (any ItemActionHandler)?
     var dropValidator: DropValidator?
     var dropPerformer: DropPerformer?
+    var syncImageProvider: SyncImageProvider
+    var asyncImageProvider: ImageProvider
     weak var collectionView: NSCollectionView?
     var draggedIndexPaths: Set<IndexPath> = []
     var isDragging = false
@@ -317,6 +331,8 @@ public class Coordinator: NSObject, NSCollectionViewDataSource, NSCollectionView
 
     init(_ parent: FileCollectionView) {
         self.parent = parent
+        syncImageProvider = parent.syncImageProvider
+        asyncImageProvider = parent.asyncImageProvider
     }
 
     public func collectionView(_: NSCollectionView, numberOfItemsInSection _: Int) -> Int {
@@ -337,7 +353,12 @@ public class Coordinator: NSObject, NSCollectionViewDataSource, NSCollectionView
 
         let cellSize = collectionView.layoutAttributesForItem(at: indexPath)?.frame.size
         let maxDim = max(cellSize?.width ?? 256, cellSize?.height ?? 256)
-        item.configure(with: layoutItem.url, maxDimension: maxDim)
+        item.configure(
+            with: layoutItem.url,
+            maxDimension: maxDim,
+            syncProvider: syncImageProvider,
+            asyncProvider: asyncImageProvider
+        )
         return item
     }
 

@@ -8,7 +8,6 @@
 // swiftlint:disable file_length
 
 import AppKit
-import ImageTools
 
 public class ThumbnailItem: NSCollectionViewItem {
     /// Set before accessing `view` — determines the visual style.
@@ -399,12 +398,17 @@ public class ThumbnailItem: NSCollectionViewItem {
         }
     }
 
-    public func configure(with url: URL, maxDimension: CGFloat = 512) {
+    public func configure(
+        with url: URL,
+        maxDimension: CGFloat = 512,
+        syncProvider: SyncImageProvider,
+        asyncProvider: ImageProvider
+    ) {
         currentURL = url
         captionLabel?.stringValue = url.lastPathComponent
 
         // Synchronous cache hit → store for viewDidLoad (view may not exist yet)
-        if let cached = ImageCache.shared.cachedImage(for: url, maxDimension: maxDimension) {
+        if let cached = syncProvider(url, maxDimension) {
             if isViewLoaded {
                 setImage(cached)
             } else {
@@ -413,7 +417,9 @@ public class ThumbnailItem: NSCollectionViewItem {
             return
         }
 
-        ImageCache.shared.image(for: url, maxDimension: maxDimension) { [weak self] img in
+        asyncProvider(url, maxDimension) { [weak self] img in
+            // The provider may deliver on a background thread; hop to main
+            // so UIKit/AppKit mutations are safe.
             DispatchQueue.main.async {
                 guard let self, self.currentURL == url else { return }
                 self.setImage(img)

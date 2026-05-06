@@ -6,7 +6,6 @@
 //
 
 import AppKit
-import ImageTools
 
 /// Visual style for the drag preview. The choice of style is driven by the
 /// layout under the cursor (source layout when a drag begins, destination
@@ -69,8 +68,20 @@ public enum DragImageComposer {
     /// Build the dragging-image components for a file URL in the given style.
     /// Returns a fresh array each call. Suitable as the body of
     /// `NSDraggingItem.imageComponentsProvider`.
-    public static func compose(for url: URL, style: DragImageStyle) -> [NSDraggingImageComponent] {
-        let iconImage = renderIcon(for: url, style: style)
+    ///
+    /// - Parameters:
+    ///   - url: The file to represent.
+    ///   - style: Visual density / size of the drag preview.
+    ///   - syncProvider: Synchronous thumbnail lookup — typically backed by
+    ///     `ImageCache.shared.cachedImage(for:maxDimension:)` in the host app.
+    ///     Passing `nil` (or a provider that returns `nil`) falls back to the
+    ///     system workspace icon, which is always available.
+    public static func compose(
+        for url: URL,
+        style: DragImageStyle,
+        syncProvider: SyncImageProvider
+    ) -> [NSDraggingImageComponent] {
+        let iconImage = renderIcon(for: url, style: style, syncProvider: syncProvider)
         let labelImage = renderLabel(text: url.lastPathComponent, style: style)
 
         let iconComponent = NSDraggingImageComponent(key: .icon)
@@ -119,16 +130,17 @@ public enum DragImageComposer {
     // MARK: - Icon rendering
 
     /// Returns the file's icon resized to the style's icon dimension. Prefers
-    /// a real Quick Look thumbnail from `ImageCache` (so dragged image files
-    /// look like image files instead of generic file blanks) and falls back
-    /// to the system file-type icon when the cache has nothing yet. For the
-    /// `.large` style we draw the icon into a fresh bitmap with a soft drop
-    /// shadow so the dragging preview gets an extra elevation cue.
-    private static func renderIcon(for url: URL, style: DragImageStyle) -> NSImage {
+    /// a real Quick Look thumbnail from the injected `syncProvider` (so
+    /// dragged image files look like image files instead of generic file
+    /// blanks) and falls back to the system file-type icon when the provider
+    /// returns `nil`. For the `.large` style we draw the icon into a fresh
+    /// bitmap with a soft drop shadow so the dragging preview gets an extra
+    /// elevation cue.
+    private static func renderIcon(for url: URL, style: DragImageStyle, syncProvider: SyncImageProvider) -> NSImage {
         let dim = style.iconDimension
         // Match the dimension the list/collection cells request so the
-        // cache hits the same bucket they already populated.
-        let baseIcon = ImageCache.shared.cachedImage(for: url, maxDimension: 64)
+        // provider hits the same cache bucket they already populated.
+        let baseIcon = syncProvider(url, 64)
             ?? NSWorkspace.shared.icon(forFile: url.path)
 
         guard style.drawsShadow else {

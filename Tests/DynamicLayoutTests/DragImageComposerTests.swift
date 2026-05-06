@@ -17,10 +17,14 @@ struct DragImageComposerTests {
         #expect(LayoutMode.waterfall.dragImageStyle == .large)
     }
 
+    /// Stub provider that always returns nil — simulates a cold cache.
+    /// DragImageComposer must fall back to the workspace icon in this case.
+    private let noCache: SyncImageProvider = { _, _ in nil }
+
     @Test func composeReturnsTwoComponents() {
         let url = URL(fileURLWithPath: "/tmp/voila-drag-test.txt")
         for style in [DragImageStyle.compact, .medium, .large] {
-            let components = DragImageComposer.compose(for: url, style: style)
+            let components = DragImageComposer.compose(for: url, style: style, syncProvider: noCache)
             #expect(components.count == 2)
             let keys = components.map(\.key)
             #expect(keys.contains(.icon))
@@ -30,7 +34,7 @@ struct DragImageComposerTests {
 
     @Test func compactPlacesIconBesideLabel() {
         let url = URL(fileURLWithPath: "/tmp/voila-drag-test.txt")
-        let components = DragImageComposer.compose(for: url, style: .compact)
+        let components = DragImageComposer.compose(for: url, style: .compact, syncProvider: noCache)
         guard let icon = components.first(where: { $0.key == .icon }),
               let label = components.first(where: { $0.key == .label })
         else {
@@ -44,7 +48,7 @@ struct DragImageComposerTests {
     @Test func mediumAndLargeStackIconAboveLabel() {
         let url = URL(fileURLWithPath: "/tmp/voila-drag-test.txt")
         for style in [DragImageStyle.medium, .large] {
-            let components = DragImageComposer.compose(for: url, style: style)
+            let components = DragImageComposer.compose(for: url, style: style, syncProvider: noCache)
             guard let icon = components.first(where: { $0.key == .icon }),
                   let label = components.first(where: { $0.key == .label })
             else {
