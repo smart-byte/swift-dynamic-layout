@@ -61,7 +61,7 @@ extension FileCollectionView {
         }
     }
 
-    func updateLayoutItems(_ layout: NSCollectionViewLayout?, items: [DynamicLayoutItem]) {
+    func updateLayoutItems(_ layout: NSCollectionViewLayout?, items: [LayoutItemFrame]) {
         (layout as? LayoutItemsProvider)?.setItems(items)
     }
 

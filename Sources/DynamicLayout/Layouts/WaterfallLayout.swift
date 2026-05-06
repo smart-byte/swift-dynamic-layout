@@ -13,7 +13,7 @@ public class WaterfallLayout: NSCollectionViewLayout, LayoutItemsProvider {
     private var contentHeight: CGFloat = 0
     private var computedSpacing: CGFloat = 0
 
-    public var items: [DynamicLayoutItem] = []
+    public var items: [LayoutItemFrame] = []
 
     public var columns: Int = 5
     public var spacingPercentage: CGFloat = 0.05

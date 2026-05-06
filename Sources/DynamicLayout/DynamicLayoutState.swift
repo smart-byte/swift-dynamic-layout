@@ -14,7 +14,7 @@ public struct DynamicLayoutItemsSnapshot: Equatable {
     public let lastID: UUID?
     public let orderSignature: Int
 
-    public init(items: [DynamicLayoutItem]) {
+    public init(items: [LayoutItemFrame]) {
         count = items.count
         firstID = items.first?.id
         lastID = items.last?.id
@@ -41,6 +41,6 @@ public func sanitizedSelection(
 /// or 1:1 when the host layout is in square-cells mode (driven by the
 /// `.tile` item style). Shared by `JustifiedLayout` and
 /// `HorizontalJustifiedLayout`.
-func effectiveAspect(for item: DynamicLayoutItem, useSquareCells: Bool) -> CGFloat {
-    useSquareCells ? 1.0 : item.aspectRatio
+func effectiveAspect(for frame: LayoutItemFrame, useSquareCells: Bool) -> CGFloat {
+    useSquareCells ? 1.0 : frame.aspectRatio
 }

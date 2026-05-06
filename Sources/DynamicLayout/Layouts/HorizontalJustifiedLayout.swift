@@ -15,7 +15,7 @@ public class HorizontalJustifiedLayout: NSCollectionViewFlowLayout, LayoutItemsP
     private var oldCache: [IndexPath: NSCollectionViewLayoutAttributes] = [:]
     private var contentWidth: CGFloat = 0
 
-    public var items: [DynamicLayoutItem] = []
+    public var items: [LayoutItemFrame] = []
 
     public var targetColumnWidth: CGFloat = 200
     public var spacing: CGFloat = 4

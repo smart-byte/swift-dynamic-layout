@@ -10,7 +10,7 @@ import AppKit
 public class HorizontalFlowLayout: NSCollectionViewFlowLayout, LayoutItemsProvider {
     public var spacingPercentage: CGFloat = 0.05
 
-    public var items: [DynamicLayoutItem] = []
+    public var items: [LayoutItemFrame] = []
 
     private var cache = [NSCollectionViewLayoutAttributes]()
     private var oldCache: [IndexPath: NSCollectionViewLayoutAttributes] = [:]

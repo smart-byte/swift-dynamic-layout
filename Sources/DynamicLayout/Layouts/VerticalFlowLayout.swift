@@ -13,7 +13,7 @@ public class VerticalFlowLayout: NSCollectionViewLayout, LayoutItemsProvider {
     public var spacingPercentage: CGFloat = 0.02
     public var sectionInset: NSEdgeInsets = .init(top: 20, left: 20, bottom: 20, right: 20)
 
-    public var items: [DynamicLayoutItem] = []
+    public var items: [LayoutItemFrame] = []
 
     private var cache = [NSCollectionViewLayoutAttributes]()
     private var oldCache: [IndexPath: NSCollectionViewLayoutAttributes] = [:]

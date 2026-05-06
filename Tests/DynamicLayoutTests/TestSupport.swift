@@ -9,17 +9,14 @@ import AppKit
 @testable import DynamicLayout
 import Foundation
 
-/// Builds an array of `DynamicLayoutItem` for testing. Each item's size is
+/// Builds an array of `LayoutItemFrame` for testing. Each item's size is
 /// synthesized from the given aspect ratio (width / height) by using a
 /// fixed height of 100 and computing width accordingly.
-func makeItems(aspectRatios: [CGFloat]) -> [DynamicLayoutItem] {
-    aspectRatios.enumerated().map { index, ratio in
+func makeItems(aspectRatios: [CGFloat]) -> [LayoutItemFrame] {
+    aspectRatios.map { ratio in
         let height: CGFloat = 100
         let width = height * ratio
-        return DynamicLayoutItem(
-            url: URL(fileURLWithPath: "/tmp/voila-test-item-\(index)"),
-            size: CGSize(width: width, height: height)
-        )
+        return LayoutItemFrame(size: CGSize(width: width, height: height))
     }
 }
 

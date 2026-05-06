@@ -14,7 +14,7 @@ public class JustifiedLayout: NSCollectionViewLayout, LayoutItemsProvider {
     private var oldCache: [IndexPath: NSCollectionViewLayoutAttributes] = [:]
     private var contentHeight: CGFloat = 0
 
-    public var items: [DynamicLayoutItem] = []
+    public var items: [LayoutItemFrame] = []
 
     public var targetRowHeight: CGFloat = 200
     public var spacing: CGFloat = 4

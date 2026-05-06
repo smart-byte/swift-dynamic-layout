@@ -28,7 +28,9 @@ public extension Coordinator {
         // the fade entirely on the very first drag (subsequent drags are
         // already smooth because the actions persist on the cached layer).
         pinSourceItemsVisible(in: collectionView, indexPaths: [indexPath])
-        return parent.layoutItems[indexPath.item].url as NSURL
+        let frame = parent.layoutItems[indexPath.item]
+        guard let url = parent.urlForFrame(frame.id) else { return nil }
+        return url as NSURL
     }
 
     func collectionView(
@@ -202,7 +204,8 @@ public extension Coordinator {
     /// a directory. Used by the folder-cell drop-target hit test.
     private func directoryURL(at indexPath: IndexPath) -> URL? {
         guard indexPath.item < parent.layoutItems.count else { return nil }
-        let url = parent.layoutItems[indexPath.item].url
+        let frame = parent.layoutItems[indexPath.item]
+        guard let url = parent.urlForFrame(frame.id) else { return nil }
         let values = try? url.resourceValues(forKeys: [.isDirectoryKey])
         return values?.isDirectory == true ? url : nil
     }
@@ -273,7 +276,7 @@ public extension Coordinator {
 
     // MARK: - Layout Update Helper
 
-    internal func updateLayout(_ collectionView: NSCollectionView, items: [DynamicLayoutItem]) {
+    internal func updateLayout(_ collectionView: NSCollectionView, items: [LayoutItemFrame]) {
         let layout = collectionView.collectionViewLayout
         if let layout = layout as? VerticalFlowLayout {
             layout.items = items

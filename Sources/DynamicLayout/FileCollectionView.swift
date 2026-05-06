@@ -1,10 +1,3 @@
-//
-//  FileCollectionView.swift
-//
-//
-//  Created by Mario Heubach on 29.04.24.
-//
-
 // swiftlint:disable file_length
 
 import Quartz
@@ -13,7 +6,7 @@ import SwiftUI
 // MARK: - FileCollectionView (for verticalFlow, horizontalFlow, justified)
 
 public struct FileCollectionView: NSViewRepresentable {
-    @Binding var layoutItems: [DynamicLayoutItem]
+    @Binding var layoutItems: [LayoutItemFrame]
     @Binding var selection: Set<IndexPath>
     @Binding var layoutMode: LayoutMode
     @Binding var itemStyle: ItemStyle
@@ -29,13 +22,18 @@ public struct FileCollectionView: NSViewRepresentable {
     /// Called when a drop is accepted. The host app binds
     /// `FileDropPerformer.perform` here.
     var dropPerformer: DropPerformer?
+    /// Resolves a frame ID to a file URL for cell rendering and drag operations.
+    /// O(N) lookup in the host's FileLayoutItem array — acceptable because
+    /// cell reuse limits call frequency to visible cells only. Profile before
+    /// adding a cache here.
+    var urlForFrame: (UUID) -> URL?
     /// Synchronous cache lookup — returns `nil` on miss. See `ImageProvider.swift`.
     var syncImageProvider: SyncImageProvider
     /// Async image loader — delivers on the main queue. See `ImageProvider.swift`.
     var asyncImageProvider: ImageProvider
 
     public init(
-        layoutItems: Binding<[DynamicLayoutItem]>,
+        layoutItems: Binding<[LayoutItemFrame]>,
         selection: Binding<Set<IndexPath>> = .constant([]),
         layoutMode: Binding<LayoutMode>,
         itemStyle: Binding<ItemStyle> = .constant(.photoFrame),
@@ -46,6 +44,7 @@ public struct FileCollectionView: NSViewRepresentable {
         actionHandler: (any ItemActionHandler)? = nil,
         dropValidator: DropValidator? = nil,
         dropPerformer: DropPerformer? = nil,
+        urlForFrame: @escaping (UUID) -> URL?,
         syncImageProvider: @escaping SyncImageProvider,
         asyncImageProvider: @escaping ImageProvider
     ) {
@@ -60,6 +59,7 @@ public struct FileCollectionView: NSViewRepresentable {
         self.actionHandler = actionHandler
         self.dropValidator = dropValidator
         self.dropPerformer = dropPerformer
+        self.urlForFrame = urlForFrame
         self.syncImageProvider = syncImageProvider
         self.asyncImageProvider = asyncImageProvider
     }
@@ -346,19 +346,25 @@ public class Coordinator: NSObject, NSCollectionViewDataSource, NSCollectionView
             return collectionView.makeItem(withIdentifier: identifier, for: indexPath)
         }
 
-        let layoutItem = parent.layoutItems[indexPath.item]
+        let frame = parent.layoutItems[indexPath.item]
         // swiftlint:disable:next force_cast
         let item = collectionView.makeItem(withIdentifier: identifier, for: indexPath) as! ThumbnailItem
         item.itemStyle = parent.itemStyle
 
         let cellSize = collectionView.layoutAttributesForItem(at: indexPath)?.frame.size
         let maxDim = max(cellSize?.width ?? 256, cellSize?.height ?? 256)
-        item.configure(
-            with: layoutItem.url,
-            maxDimension: maxDim,
-            syncProvider: syncImageProvider,
-            asyncProvider: asyncImageProvider
-        )
+
+        // Resolve frame ID → URL via the host-injected closure.
+        // This is an O(N) lookup in the host's FileLayoutItem array.
+        // Acceptable because cell reuse limits call frequency to visible cells.
+        if let url = parent.urlForFrame(frame.id) {
+            item.configure(
+                with: url,
+                maxDimension: maxDim,
+                syncProvider: syncImageProvider,
+                asyncProvider: asyncImageProvider
+            )
+        }
         return item
     }
 
@@ -378,7 +384,9 @@ public class Coordinator: NSObject, NSCollectionViewDataSource, NSCollectionView
         parent.selection
             .sorted { $0.item < $1.item }
             .compactMap { idx in
-                idx.item < parent.layoutItems.count ? parent.layoutItems[idx.item].url : nil
+                guard idx.item < parent.layoutItems.count else { return nil }
+                let frame = parent.layoutItems[idx.item]
+                return parent.urlForFrame(frame.id)
             }
     }
 }
