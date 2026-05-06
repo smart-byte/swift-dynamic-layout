@@ -1,8 +1,15 @@
-# swift-dynamic-layout
+<div align="center">
+
+# DynamicLayout
+
+[![macOS](https://img.shields.io/badge/macOS-14%2B-blue?logo=apple&logoColor=white)](https://www.apple.com/macos/)
+[![Swift](https://img.shields.io/badge/Swift-5.9%2B-orange?logo=swift&logoColor=white)](https://swift.org)
+[![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
+[![Version](https://img.shields.io/badge/Version-1.0.0-lightgrey)](https://github.com/smart-byte/swift-dynamic-layout/releases)
+
+</div>
 
 A Swift package providing pluggable `NSCollectionViewLayout` algorithms for macOS apps that need richer alternatives to the system flow layout — Pinterest-style waterfall, Google-Photos-style justified rows, horizontal flow, and vertical/horizontal variants — plus the cell-rendering and drag-and-drop primitives to back them.
-
-Originally built for the [Voilà file browser](https://github.com/smart-byte/voila), extracted as a standalone package once the engine had been fully decoupled from any file-domain concerns.
 
 ## Requirements
 
@@ -101,10 +108,15 @@ These are called for both whitespace drops and folder-row drops; the second `URL
 
 `v1.0.0` — the initial public release after extraction from voila. Production-tested in a real file browser with thousands of items per folder.
 
-## License
-
-MIT — see [LICENSE](LICENSE).
-
 ## Releases
 
 Driven by the `VERSION` file: bump it on `main`, push, and CI tags + creates the GitHub release automatically.
+
+## License
+
+Released under the [MIT License](LICENSE).
+
+© 2026 Smart-Byte GmbH / Mario Heubach.
+
+Originally built for [Voilà](https://github.com/smart-byte/voila), a
+macOS file-browser, then extracted as a standalone library.
