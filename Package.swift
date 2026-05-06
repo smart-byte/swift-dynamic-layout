@@ -16,7 +16,7 @@ let package = Package(
         ),
     ],
     dependencies: [
-        .package(path: "../ImageTools"),
+        .package(url: "https://github.com/smart-byte/swift-image-tools.git", from: "0.1.0"),
         .package(url: "https://github.com/apple/swift-log", from: "1.0.0"),
     ],
     targets: [
@@ -25,7 +25,7 @@ let package = Package(
         .target(
             name: "DynamicLayout",
             dependencies: [
-                "ImageTools",
+                .product(name: "ImageTools", package: "swift-image-tools"),
                 .product(name: "Logging", package: "swift-log"),
             ]
         ),
