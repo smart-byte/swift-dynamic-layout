@@ -36,7 +36,13 @@ public class WaterfallLayout: NSCollectionViewLayout, LayoutItemsProvider {
         let nominalColumnWidth = totalWidth / CGFloat(columns)
         let spacing = nominalColumnWidth * spacingPercentage
         computedSpacing = spacing
-        sectionInset = NSEdgeInsets(top: spacing, left: spacing, bottom: spacing, right: spacing)
+        // Auto-derive only when spacing is actually computed; an
+        // explicit `spacingPercentage = 0` keeps the host-supplied
+        // sectionInset untouched (used by unit tests that pin a
+        // specific inset to verify item placement).
+        if spacing > 0 {
+            sectionInset = NSEdgeInsets(top: spacing, left: spacing, bottom: spacing, right: spacing)
+        }
 
         let width = totalWidth - sectionInset.left - sectionInset.right
         let columnWidth = (width - CGFloat(columns - 1) * spacing) / CGFloat(columns)

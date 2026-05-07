@@ -49,7 +49,13 @@ public class HorizontalFlowLayout: NSCollectionViewFlowLayout, LayoutItemsProvid
         // prepare pass.
         let totalHeight = collectionView.bounds.height
         let spacing = totalHeight * spacingPercentage
-        sectionInset = NSEdgeInsets(top: spacing, left: spacing, bottom: spacing, right: spacing)
+        // Auto-derive only when spacing is actually computed; an
+        // explicit `spacingPercentage = 0` keeps the host-supplied
+        // sectionInset untouched (used by unit tests that pin a
+        // specific inset to verify item placement).
+        if spacing > 0 {
+            sectionInset = NSEdgeInsets(top: spacing, left: spacing, bottom: spacing, right: spacing)
+        }
         let availableHeight = totalHeight - sectionInset.top - sectionInset.bottom
 
         minimumInteritemSpacing = spacing
