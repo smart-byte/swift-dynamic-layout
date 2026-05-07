@@ -333,6 +333,11 @@ public class Coordinator: NSObject, NSCollectionViewDataSource, NSCollectionView
     var isProcessingDrop = false
     var pendingDropIndex: Int?
     let dragSession = DragSessionState()
+    /// Source-side cell snapshots captured at `willBeginAt`. Used to
+    /// restore the preview when the cursor returns to this collection
+    /// view after hovering over a different drop target. Cleared in
+    /// `endedAt`.
+    var sourceComponentsByURL: [URL: [NSDraggingImageComponent]] = [:]
 
     // Scroll-position cache: folder URL → first visible item index
     static var scrollCache: [URL: Int] = [:]

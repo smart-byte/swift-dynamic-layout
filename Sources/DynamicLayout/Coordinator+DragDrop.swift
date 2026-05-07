@@ -48,6 +48,24 @@ public extension Coordinator {
         // effect. Restored in `endedAt`.
         pinSourceItemsVisible(in: collectionView, indexPaths: indexPaths)
 
+        // Capture each dragging item's *source* image-components — what
+        // NSCollectionView built from `cell.draggingImageComponents` —
+        // and pin them as the active provider. This pins the source
+        // preview to the cell snapshot, which a target's `validateDrop`
+        // is free to override; the cache lets us restore the cell
+        // snapshot when the cursor returns to this collection view.
+        session.enumerateDraggingItems(
+            options: [],
+            for: collectionView,
+            classes: [NSURL.self],
+            searchOptions: [:]
+        ) { [weak self] item, _, _ in
+            guard let self, let url = item.item as? URL else { return }
+            let captured = item.imageComponents ?? []
+            sourceComponentsByURL[url] = captured
+            item.imageComponentsProvider = { captured }
+        }
+
         dragSession.begin()
     }
 
@@ -68,6 +86,7 @@ public extension Coordinator {
         // animation via `isProcessingDrop`, which we leave intact.
         isDragging = false
         draggedIndexPaths = []
+        sourceComponentsByURL.removeAll()
 
         dragSession.end()
     }
@@ -112,6 +131,15 @@ public extension Coordinator {
             return []
         }
 
+        // Finder-style adaptive flying preview: as the cursor enters
+        // this collection view, the dragging-image components are
+        // either restored to the source's cell snapshot (if we are
+        // the source returning to ourselves) or swapped to this
+        // collection's drag-image style (if we're a foreign target).
+        // The override lasts until another collection / table view
+        // takes over, or until `endedAt` clears the cache.
+        adaptDraggingPreview(info: info, in: collectionView, isInternal: isInternal)
+
         // Internal reorder uses the existing insertion-line UI: zone-based
         // dropIndex + a thin accent line between items. External drags
         // never see the insertion line — they pick between a folder-cell
@@ -155,6 +183,47 @@ public extension Coordinator {
         let op = dropValidator?(info, parent.folderURL) ?? []
         nibless?.setDropTargetHighlight(op != [])
         return op
+    }
+
+    /// Swaps each dragging item's `imageComponentsProvider` based on
+    /// whether the cursor is inside the source collection view or a
+    /// foreign target. Internal: restore the cell-snapshot captured at
+    /// `willBeginAt`. Foreign: render via `DragImageComposer` with this
+    /// collection's `LayoutMode.dragImageStyle` and the target
+    /// `ItemStyle`'s `dragShowsLabel` rule. Called from `validateDrop`
+    /// on every mouse move while the cursor is inside our collection;
+    /// reassigning the provider is cheap (it's only invoked when
+    /// AppKit redraws the drag image).
+    private func adaptDraggingPreview(
+        info: NSDraggingInfo,
+        in collectionView: NSCollectionView,
+        isInternal: Bool
+    ) {
+        let style = parent.layoutMode.dragImageStyle
+        let showsLabel = parent.itemStyle.dragShowsLabel
+        let syncProvider = parent.syncImageProvider
+        info.enumerateDraggingItems(
+            options: [],
+            for: collectionView,
+            classes: [NSURL.self],
+            searchOptions: [:]
+        ) { [weak self] item, _, _ in
+            guard let url = item.item as? URL else { return }
+            if isInternal,
+               let cached = self?.sourceComponentsByURL[url]
+            {
+                item.imageComponentsProvider = { cached }
+                return
+            }
+            item.imageComponentsProvider = {
+                DragImageComposer.compose(
+                    for: url,
+                    style: style,
+                    syncProvider: syncProvider,
+                    showsLabel: showsLabel
+                )
+            }
+        }
     }
 
     /// Computes the layout-specific drop index + indicator frame for

@@ -26,6 +26,22 @@ public enum ItemStyle: String, CaseIterable, Hashable, Sendable {
         case .borderless: "rectangle"
         }
     }
+
+    /// Whether a layout using this item style wants the filename
+    /// rendered next to the icon in the *flying* drag preview when it
+    /// acts as a drop target. Borderless deliberately strips chrome
+    /// down to the bare image, so when the cursor enters a borderless
+    /// target the preview drops the capsule too. Other styles already
+    /// surface the filename in their cells; the preview keeps it for
+    /// continuity. Source-side preview (the cell snapshot at drag
+    /// start) is unaffected — this only drives the target-adapted
+    /// rendering during the drag session.
+    public var dragShowsLabel: Bool {
+        switch self {
+        case .borderless: false
+        case .photoFrame, .tile: true
+        }
+    }
 }
 
 extension ItemStyle: Codable {
