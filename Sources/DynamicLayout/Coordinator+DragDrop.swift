@@ -48,6 +48,24 @@ public extension Coordinator {
         // effect. Restored in `endedAt`.
         pinSourceItemsVisible(in: collectionView, indexPaths: indexPaths)
 
+        // Capture each dragging item's *source* image-components — what
+        // NSCollectionView built from `cell.draggingImageComponents` —
+        // and pin them as the active provider. This pins the source
+        // preview to the cell snapshot, which a target's `validateDrop`
+        // is free to override; the cache lets us restore the cell
+        // snapshot when the cursor returns to this collection view.
+        session.enumerateDraggingItems(
+            options: [],
+            for: collectionView,
+            classes: [NSURL.self],
+            searchOptions: [:]
+        ) { [weak self] item, _, _ in
+            guard let self, let url = item.item as? URL else { return }
+            let captured = item.imageComponents ?? []
+            sourceComponentsByURL[url] = captured
+            item.imageComponentsProvider = { captured }
+        }
+
         dragSession.begin()
     }
 
@@ -68,6 +86,7 @@ public extension Coordinator {
         // animation via `isProcessingDrop`, which we leave intact.
         isDragging = false
         draggedIndexPaths = []
+        sourceComponentsByURL.removeAll()
 
         dragSession.end()
     }
@@ -112,12 +131,47 @@ public extension Coordinator {
             return []
         }
 
-        // Internal reorder uses the existing insertion-line UI: zone-based
-        // dropIndex + a thin accent line between items. External drags
-        // never see the insertion line — they pick between a folder-cell
-        // highlight (drop INTO directory) or a pane-level border (drop
-        // into the pane's own folder), which matches Finder's affordance.
+        // Finder-style adaptive flying preview: as the cursor enters
+        // this collection view, the dragging-image components are
+        // either restored to the source's cell snapshot (if we are
+        // the source returning to ourselves) or swapped to this
+        // collection's drag-image style (if we're a foreign target).
+        // The override lasts until another collection / table view
+        // takes over, or until `endedAt` clears the cache.
+        adaptDraggingPreview(info: info, in: collectionView, isInternal: isInternal)
+
+        // Folder-cell drop target FIRST — applies to both internal
+        // and external drags so a same-pane drag onto a sibling
+        // subfolder is a real move (matches FileListView). Refusing
+        // an internal drag wholesale up here would block that case.
+        // NSCollectionView paints `.asDropTarget` on the indicated
+        // cell automatically; ThumbnailItem renders the accent border.
+        if let hitIndexPath = collectionView.indexPathForItem(at: point),
+           hitIndexPath.item < parent.layoutItems.count,
+           let folderURL = directoryURL(at: hitIndexPath),
+           let op = dropValidator?(info, folderURL), op != []
+        {
+            proposedDropOperation.pointee = .on
+            proposedDropIndexPath.pointee = NSIndexPath(forItem: hitIndexPath.item, inSection: 0)
+            nibless?.setDropTargetHighlight(false)
+            nibless?.hideDropIndicator()
+            return op
+        }
+
+        // Internal drag landed on whitespace or a non-folder cell —
+        // moving into the same folder we came from is a no-op, so
+        // refuse it (or render the reorder line if reorder is on).
+        // Either way, pane-border highlight stays off — the cue for
+        // "drop here = parent folder" only makes sense for external
+        // drags coming from outside this pane.
         if isInternal {
+            guard parent.allowsInternalReorder else {
+                proposedDropOperation.pointee = .before
+                proposedDropIndexPath.pointee = NSIndexPath(forItem: parent.layoutItems.count, inSection: 0)
+                nibless?.hideDropIndicator()
+                nibless?.setDropTargetHighlight(false)
+                return []
+            }
             proposedDropOperation.pointee = .before
             updateInternalReorderIndicator(
                 collectionView: collectionView,
@@ -128,26 +182,11 @@ public extension Coordinator {
             return .move
         }
 
-        // External / cross-pane drag — no insertion line.
+        // External drag on whitespace / non-folder cell — drop into
+        // the pane's own folder. Out-of-range index + `.before` keeps
+        // NSCollectionView from painting `.asDropTarget` on a random
+        // cell; the pane border is the cue.
         nibless?.hideDropIndicator()
-
-        // Folder-cell drop target: NSCollectionView applies
-        // `.asDropTarget` to the cell at `proposedDropIndexPath`, which
-        // ThumbnailItem renders as a border overlay.
-        if let hitIndexPath = collectionView.indexPathForItem(at: point),
-           hitIndexPath.item < parent.layoutItems.count,
-           let folderURL = directoryURL(at: hitIndexPath),
-           let op = dropValidator?(info, folderURL), op != []
-        {
-            proposedDropOperation.pointee = .on
-            proposedDropIndexPath.pointee = NSIndexPath(forItem: hitIndexPath.item, inSection: 0)
-            nibless?.setDropTargetHighlight(false)
-            return op
-        }
-
-        // Whitespace drop into the pane's own folder. Keep `.before` with
-        // an out-of-range index so NSCollectionView doesn't paint
-        // `.asDropTarget` on a random cell; the pane border is the cue.
         proposedDropOperation.pointee = .before
         proposedDropIndexPath.pointee = NSIndexPath(
             forItem: parent.layoutItems.count, inSection: 0
@@ -155,6 +194,47 @@ public extension Coordinator {
         let op = dropValidator?(info, parent.folderURL) ?? []
         nibless?.setDropTargetHighlight(op != [])
         return op
+    }
+
+    /// Swaps each dragging item's `imageComponentsProvider` based on
+    /// whether the cursor is inside the source collection view or a
+    /// foreign target. Internal: restore the cell-snapshot captured at
+    /// `willBeginAt`. Foreign: render via `DragImageComposer` with this
+    /// collection's `LayoutMode.dragImageStyle` and the target
+    /// `ItemStyle`'s `dragShowsLabel` rule. Called from `validateDrop`
+    /// on every mouse move while the cursor is inside our collection;
+    /// reassigning the provider is cheap (it's only invoked when
+    /// AppKit redraws the drag image).
+    private func adaptDraggingPreview(
+        info: NSDraggingInfo,
+        in collectionView: NSCollectionView,
+        isInternal: Bool
+    ) {
+        let style = parent.layoutMode.dragImageStyle
+        let showsLabel = parent.itemStyle.dragShowsLabel
+        let syncProvider = parent.syncImageProvider
+        info.enumerateDraggingItems(
+            options: [],
+            for: collectionView,
+            classes: [NSURL.self],
+            searchOptions: [:]
+        ) { [weak self] item, _, _ in
+            guard let url = item.item as? URL else { return }
+            if isInternal,
+               let cached = self?.sourceComponentsByURL[url]
+            {
+                item.imageComponentsProvider = { cached }
+                return
+            }
+            item.imageComponentsProvider = {
+                DragImageComposer.compose(
+                    for: url,
+                    style: style,
+                    syncProvider: syncProvider,
+                    showsLabel: showsLabel
+                )
+            }
+        }
     }
 
     /// Computes the layout-specific drop index + indicator frame for
@@ -230,7 +310,7 @@ public extension Coordinator {
 
         let isInternal = draggingInfo.draggingSource as? NSCollectionView == collectionView
 
-        if isInternal, let draggedIndex = draggedIndexPaths.first?.item {
+        if isInternal, parent.allowsInternalReorder, let draggedIndex = draggedIndexPaths.first?.item {
             return handleInternalDrop(collectionView: collectionView, draggedIndex: draggedIndex)
         }
 

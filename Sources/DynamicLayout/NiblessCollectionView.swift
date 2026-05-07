@@ -16,9 +16,77 @@ import Quartz
 /// rather than with this raw AppKit subclass.
 class NiblessCollectionView: NSCollectionView {
     private var programmaticClasses: [NSUserInterfaceItemIdentifier: NSCollectionViewItem.Type] = [:]
+    /// Tokens for window-key notifications. Re-registered on
+    /// `viewDidMoveToWindow` so a tab tearoff that moves us into a
+    /// different window keeps the active-state appearance accurate.
+    private var keyWindowObservers: [NSObjectProtocol] = []
 
     weak var quickLookCoordinator: Coordinator?
     var actionHandler: (any ItemActionHandler)?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        let center = NotificationCenter.default
+        keyWindowObservers.forEach(center.removeObserver)
+        keyWindowObservers.removeAll()
+        guard let window else { return }
+        let names: [Notification.Name] = [
+            NSWindow.didBecomeKeyNotification,
+            NSWindow.didResignKeyNotification,
+        ]
+        keyWindowObservers = names.map { name in
+            center.addObserver(
+                forName: name,
+                object: window,
+                queue: .main
+            ) { [weak self] _ in
+                self?.refreshActiveSelectionAppearance()
+            }
+        }
+        // Initial pass — picks up the right colour as soon as the
+        // collection appears in its window.
+        refreshActiveSelectionAppearance()
+    }
+
+    deinit {
+        keyWindowObservers.forEach(NotificationCenter.default.removeObserver)
+    }
+
+    /// Pane-level focus changes within the same key window also need
+    /// to trigger a refresh — clicking in a sibling pane shifts the
+    /// window's first-responder away from this collection view, and
+    /// the selection should fade to the inactive tint just like
+    /// NSTableView does for the list pane in that case.
+    ///
+    /// Both callbacks fire *before* `NSWindow` actually transfers its
+    /// `firstResponder` pointer, so we hop async to make sure the
+    /// items see the post-transit value. Without that hop the cells
+    /// read a stale first-responder and the swap doesn't paint.
+    override func becomeFirstResponder() -> Bool {
+        let result = super.becomeFirstResponder()
+        DispatchQueue.main.async { [weak self] in
+            self?.refreshActiveSelectionAppearance()
+        }
+        return result
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let result = super.resignFirstResponder()
+        DispatchQueue.main.async { [weak self] in
+            self?.refreshActiveSelectionAppearance()
+        }
+        return result
+    }
+
+    /// Tells every visible `ThumbnailItem` to recompute its selection
+    /// colour. Driven by window-key and first-responder changes so
+    /// non-list layouts get the same active / inactive distinction
+    /// NSTableView gives the list view for free.
+    private func refreshActiveSelectionAppearance() {
+        for item in visibleItems() {
+            (item as? ThumbnailItem)?.refreshActiveSelectionAppearance()
+        }
+    }
 
     func registerProgrammatic(
         _ itemClass: NSCollectionViewItem.Type,

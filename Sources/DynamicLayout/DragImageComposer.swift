@@ -79,17 +79,26 @@ public enum DragImageComposer {
     public static func compose(
         for url: URL,
         style: DragImageStyle,
-        syncProvider: SyncImageProvider
+        syncProvider: SyncImageProvider,
+        showsLabel: Bool = true
     ) -> [NSDraggingImageComponent] {
         let iconImage = renderIcon(for: url, style: style, syncProvider: syncProvider)
-        let labelImage = renderLabel(text: url.lastPathComponent, style: style)
-
         let iconComponent = NSDraggingImageComponent(key: .icon)
         iconComponent.contents = iconImage
+        let iconSize = iconImage.size
+
+        guard showsLabel else {
+            // Image-only preview — used for borderless cells where a
+            // capsule under the icon would clash with the deliberately
+            // chrome-free presentation. Origin matches the labelled
+            // path so the preview is centred at the cursor consistently.
+            iconComponent.frame = CGRect(origin: .zero, size: iconSize)
+            return [iconComponent]
+        }
+
+        let labelImage = renderLabel(text: url.lastPathComponent, style: style)
         let labelComponent = NSDraggingImageComponent(key: .label)
         labelComponent.contents = labelImage
-
-        let iconSize = iconImage.size
         let labelSize = labelImage.size
 
         switch style {
@@ -181,26 +190,20 @@ public enum DragImageComposer {
 
     /// Renders `text` as a rounded-rect label badge into a bitmap so the
     /// drag image stays consistent with how AppKit paints standard drag
-    /// labels (semi-transparent dark capsule, white text). For long names
-    /// the text truncates in the middle.
-    private static func renderLabel(text: String, style: DragImageStyle) -> NSImage {
+    /// labels. Finder tints the file-name capsule with the system accent
+    /// colour during a drag across every layout style — list, icon view,
+    /// gallery, desktop — so we match that here uniformly. White text on
+    /// the accent-tinted capsule reads well in both light and dark modes.
+    /// For long names the text truncates in the middle.
+    public static func renderLabel(text: String, style: DragImageStyle) -> NSImage {
         let font = style.labelFont
 
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineBreakMode = .byTruncatingMiddle
         paragraph.alignment = .center
 
-        // Finder uses an accent-color tint behind the file name for the
-        // List-view (compact) drag preview; the dark capsule is reserved
-        // for the card-style Desktop drags.
-        let textColor: NSColor = switch style {
-        case .compact: .white
-        case .medium, .large: .white
-        }
-        let capsuleFill = switch style {
-        case .compact: NSColor.controlAccentColor.withAlphaComponent(0.85)
-        case .medium, .large: NSColor.black.withAlphaComponent(0.55)
-        }
+        let textColor: NSColor = .white
+        let capsuleFill = NSColor.controlAccentColor.withAlphaComponent(0.85)
 
         let attributes: [NSAttributedString.Key: Any] = [
             .font: font,

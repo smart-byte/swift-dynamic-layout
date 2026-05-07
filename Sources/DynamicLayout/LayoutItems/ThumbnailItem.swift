@@ -13,6 +13,17 @@ public class ThumbnailItem: NSCollectionViewItem {
     /// Set before accessing `view` — determines the visual style.
     var itemStyle: ItemStyle = .photoFrame
 
+    /// Layout-level scale reference (e.g. the toolbar zoom slider's
+    /// value). Forwarded to `BorderImageView` so the photo-frame
+    /// matte stays uniformly thick across all cells in a layout
+    /// regardless of their individual bounds. Coordinator sets this
+    /// during `itemForRepresentedObjectAt`.
+    var scaleReference: CGFloat = 250 {
+        didSet {
+            borderImageView?.scaleReference = scaleReference
+        }
+    }
+
     private var borderImageView: BorderImageView?
     private var plainImageView: NSImageView?
     /// Square background view used by `.tile` style. The cell itself stays
@@ -27,6 +38,11 @@ public class ThumbnailItem: NSCollectionViewItem {
     /// centered over the lower edge of the image. Other styles use
     /// the cell view directly.
     private var captionPill: CaptionPill?
+    /// Pill background that hosts the photoFrame caption. Stays
+    /// transparent when not selected; tinted with the accent (or
+    /// inactive secondary) colour while the cell is selected, à la
+    /// Finder's gallery.
+    private var captionPillBackground: CaptionSelectionPill?
     /// Below this cell-height threshold the caption is hidden — at
     /// thumbnail-grid sizes the label would either get clipped or
     /// dominate the cell.
@@ -68,6 +84,20 @@ public class ThumbnailItem: NSCollectionViewItem {
         }
     }
 
+    /// Tracks whether the cursor is currently inside the cell. Drives
+    /// the borderless caption pill's visibility — it stays hidden
+    /// until the user hovers, so the borderless look stays truly
+    /// chrome-free at rest. Other styles ignore hover (their captions
+    /// are always visible up to the small-cell cutoff).
+    private var isHovered = false {
+        didSet {
+            guard oldValue != isHovered else { return }
+            applyCaptionVisibility()
+        }
+    }
+
+    private var hoverTrackingArea: NSTrackingArea?
+
     /// NSCollectionView calls this automatically when the item becomes a
     /// drop target (validateDrop returned `.on` with this item's
     /// indexPath). We layer the visual on top of the cell so the
@@ -85,8 +115,25 @@ public class ThumbnailItem: NSCollectionViewItem {
         plainImageView?.image = nil
         captionLabel?.stringValue = ""
         isSelected = false
+        // Snap-reset the borderless pill alpha BEFORE clearing
+        // `isHovered`, so the recycle-driven applyCaptionVisibility
+        // call animates from 0 → 0 (no visible change) instead of
+        // 1 → 0 (visible fade-out for cells that scroll back into
+        // view from a hovered state).
+        if itemStyle == .borderless {
+            captionPill?.alphaValue = 0
+        }
+        isHovered = false
         highlightState = .none
         view.layer?.transform = CATransform3DIdentity
+    }
+
+    override public func mouseEntered(with _: NSEvent) {
+        isHovered = true
+    }
+
+    override public func mouseExited(with _: NSEvent) {
+        isHovered = false
     }
 
     override public func apply(_ layoutAttributes: NSCollectionViewLayoutAttributes) {
@@ -97,13 +144,15 @@ public class ThumbnailItem: NSCollectionViewItem {
         CATransaction.commit()
     }
 
-    /// For `.tile` cells, the visible "frame" is the surrounding tile, but
-    /// only the inner image should fly with the cursor — the dragged
-    /// payload is the file itself, not the chrome we put around it. For
-    /// the other styles the full cell *is* the visual, so the default
-    /// snapshot still applies.
+    /// `.tile` and `.borderless` both render an image-only drag
+    /// preview — chrome (tile backdrop, borderless caption pill)
+    /// shouldn't ride along with the dragged file. `.photoFrame`
+    /// keeps the default super snapshot, which already shows the
+    /// framed image + filename below the way a card-style drag
+    /// should look.
     override public var draggingImageComponents: [NSDraggingImageComponent] {
-        guard itemStyle == .tile,
+        let usesPlainImage = itemStyle == .tile || itemStyle == .borderless
+        guard usesPlainImage,
               let imageView = plainImageView,
               let image = imageView.image
         else {
@@ -174,10 +223,69 @@ public class ThumbnailItem: NSCollectionViewItem {
             dropTargetOverlay.topAnchor.constraint(equalTo: view.topAnchor, constant: 6),
             dropTargetOverlay.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -6),
         ])
+
+        // Propagate the (possibly already-set) scaleReference into
+        // the freshly-created borderImageView. The didSet hook only
+        // fires when the property changes after `loadView`, so we
+        // need this explicit one-shot push too.
+        borderImageView?.scaleReference = scaleReference
+
+        // Hover tracking — `inVisibleRect` keeps the area aligned with
+        // whatever rect the cell is currently showing (cell reuse,
+        // scrolling, layout-attribute changes), no manual updates.
+        let area = NSTrackingArea(
+            rect: view.bounds,
+            options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        view.addTrackingArea(area)
+        hoverTrackingArea = area
+    }
+
+    /// Folds the size-based and hover-based visibility rules for the
+    /// caption pill into a single decision. Called from
+    /// `viewDidLayout` (size changes) and the `isHovered` setter
+    /// (hover changes); the small-cell cutoff still wins over the
+    /// hover gate so tiny grid thumbnails don't pop a caption no
+    /// matter what.
+    private func applyCaptionVisibility() {
+        let cellTooSmall = view.bounds.height < Self.captionMinCellHeight
+        switch itemStyle {
+        case .photoFrame, .tile:
+            // Caption always visible, subject only to the small-cell
+            // cutoff (binary toggle, no animation).
+            captionLabel?.isHidden = cellTooSmall
+            captionPill?.isHidden = cellTooSmall
+            // photoFrame's selection pill rides along with the label.
+            captionPillBackground?.isHidden = cellTooSmall
+        case .borderless:
+            // Hover-only with a short fade. Size cutoff still wins —
+            // tiny cells hide the pill outright instead of briefly
+            // animating a caption that wouldn't be readable anyway.
+            if cellTooSmall {
+                captionPill?.isHidden = true
+                captionPill?.alphaValue = 0
+            } else {
+                captionPill?.isHidden = false
+                NSAnimationContext.runAnimationGroup { ctx in
+                    ctx.duration = 0.15
+                    ctx.allowsImplicitAnimation = true
+                    captionPill?.animator().alphaValue = isHovered ? 1.0 : 0.0
+                }
+            }
+        }
     }
 
     private func setupPhotoFrameStyle() {
         view.layer?.backgroundColor = .clear
+        // photoFrame's cell is fully transparent — the cornerRadius
+        // set in `viewDidLayout` only existed to clip subviews to
+        // the rounded shape, but it also clipped the caption pill's
+        // rounded ends when they grazed the cell's curved corners.
+        // Disabling the mask lets the pill render as a clean capsule
+        // at every scale; nothing on this style needs the clip.
+        view.layer?.masksToBounds = false
 
         let imageView = BorderImageView()
         imageView.translatesAutoresizingMaskIntoConstraints = false
@@ -191,13 +299,30 @@ public class ThumbnailItem: NSCollectionViewItem {
         )
         captionLabel = label
 
+        // Pill background around the caption. Stays clear at rest;
+        // turns into the accent pill when selected (Finder gallery
+        // affordance). Capsule corners are managed inside the pill
+        // itself — driving cornerRadius from the cell's `viewDidLayout`
+        // races Auto Layout on collection-layout switches and lands a
+        // stale height before the stack has resized the pill.
+        let pill = CaptionSelectionPill()
+        pill.translatesAutoresizingMaskIntoConstraints = false
+        pill.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.topAnchor.constraint(equalTo: pill.topAnchor, constant: 1),
+            label.bottomAnchor.constraint(equalTo: pill.bottomAnchor, constant: -1),
+            label.leadingAnchor.constraint(equalTo: pill.leadingAnchor, constant: 6),
+            label.trailingAnchor.constraint(equalTo: pill.trailingAnchor, constant: -6),
+        ])
+        captionPillBackground = pill
+
         // Apple-idiomatic vertical stack: caption gets `required`
         // compression and hugging priorities so it always renders at
         // its intrinsic height; the image gets `defaultLow` and shrinks
         // first when the cell can't fit both. When the caption is
         // hidden later, the stack drops it from layout automatically
         // and the image takes the freed space.
-        let stack = NSStackView(views: [imageView, label])
+        let stack = NSStackView(views: [imageView, pill])
         stack.orientation = .vertical
         stack.alignment = .centerX
         stack.distribution = .fill
@@ -209,6 +334,8 @@ public class ThumbnailItem: NSCollectionViewItem {
         imageView.setContentHuggingPriority(.defaultLow, for: .vertical)
         label.setContentCompressionResistancePriority(.required, for: .vertical)
         label.setContentHuggingPriority(.required, for: .vertical)
+        pill.setContentCompressionResistancePriority(.required, for: .vertical)
+        pill.setContentHuggingPriority(.required, for: .vertical)
 
         NSLayoutConstraint.activate([
             stack.topAnchor.constraint(equalTo: view.topAnchor, constant: 8),
@@ -216,9 +343,10 @@ public class ThumbnailItem: NSCollectionViewItem {
             stack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 6),
             stack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -6),
             // Framed image keeps its 80% cell width — caption fills the
-            // stack width so middle-truncation kicks in for long names.
+            // stack width (with horizontal pill-padding) so middle-
+            // truncation kicks in for long names.
             imageView.widthAnchor.constraint(equalTo: view.widthAnchor, multiplier: 0.8),
-            label.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            pill.widthAnchor.constraint(lessThanOrEqualTo: stack.widthAnchor),
         ])
     }
 
@@ -304,9 +432,11 @@ public class ThumbnailItem: NSCollectionViewItem {
 
         // Floating pill: dark capsule centered above the bottom edge,
         // white filename inside. The pill hugs the label width so the
-        // underlying image stays mostly visible.
+        // underlying image stays mostly visible. Starts at alpha 0 so
+        // the first hover-fade animates from 0 → 1, not 1 → 0 → 1.
         let pill = CaptionPill()
         pill.translatesAutoresizingMaskIntoConstraints = false
+        pill.alphaValue = 0
         view.addSubview(pill)
         captionPill = pill
 
@@ -355,7 +485,10 @@ public class ThumbnailItem: NSCollectionViewItem {
         super.viewDidLayout()
         switch itemStyle {
         case .photoFrame:
-            view.layer?.cornerRadius = view.bounds.width * 0.1
+            // Cell stays clear, no clipping → no cornerRadius needed.
+            // The visible chrome is the matte (BorderImageView) and
+            // the caption pill, both of which carry their own corners.
+            view.layer?.cornerRadius = 0
         case .tile:
             view.layer?.cornerRadius = 0
             if let tile = tileBackgroundView {
@@ -364,21 +497,21 @@ public class ThumbnailItem: NSCollectionViewItem {
         case .borderless:
             view.layer?.cornerRadius = 0
         }
-        // Keep the drop-target overlay's corner radius in sync; clamp so
-        // very small thumbnails don't end up with sharp corners while the
-        // surrounding cell is rounded.
+        // Keep the drop-target overlay's corner radius in sync. The
+        // overlay still rounds itself for visual continuity with the
+        // accent dropline; the cell itself no longer has a curve in
+        // the photoFrame case but a soft drop-target outline still
+        // reads as friendly.
         let overlayRadius: CGFloat = switch itemStyle {
-        case .photoFrame: max(12, view.bounds.width * 0.1)
+        case .photoFrame: 12
         case .tile: max(8, (tileBackgroundView?.bounds.width ?? view.bounds.width) * 0.06)
         case .borderless: 10
         }
         dropTargetOverlay.layer?.cornerRadius = overlayRadius
-        // Hide the filename caption on cells too small to read it —
-        // tiny grid thumbnails need their full pixel budget for the
-        // image, not for a label that would be illegible anyway.
-        let hideCaption = view.bounds.height < Self.captionMinCellHeight
-        captionLabel?.isHidden = hideCaption
-        captionPill?.isHidden = hideCaption
+        // Caption visibility folds size-based hiding (tiny grid
+        // thumbnails) and hover-based hiding (borderless) into one
+        // decision in `applyCaptionVisibility`.
+        applyCaptionVisibility()
     }
 
     // MARK: - Configure
@@ -441,15 +574,55 @@ public class ThumbnailItem: NSCollectionViewItem {
 
     // MARK: - Selection
 
+    /// Re-applies the selection appearance using the cell's current
+    /// window-key state. Called from `NiblessCollectionView` when
+    /// the host window becomes / resigns key, so selections in the
+    /// collection layouts get the same active / inactive distinction
+    /// NSTableView already gives the list view natively.
+    public func refreshActiveSelectionAppearance() {
+        updateSelectionAppearance()
+    }
+
     private func updateSelectionAppearance() {
+        // Match NSTableView's native behaviour: the selection only
+        // shows the system accent while the cell's collection view
+        // is the key window's first responder. App-level focus loss
+        // (window not key) and pane-level focus loss (first
+        // responder is in a sibling pane) both fade the selection
+        // to the unemphasised secondary tint.
+        let isActive = isSelectionActive
+        let accent: CGColor = isActive
+            ? NSColor.controlAccentColor.cgColor
+            : NSColor.unemphasizedSelectedContentBackgroundColor.cgColor
         switch itemStyle {
         case .photoFrame:
-            view.layer?.backgroundColor = isSelected ? CGColor(gray: 1, alpha: 0.1) : .clear
+            // Selection rendered by BorderImageView as an accent
+            // border on the matte's outer edge, plus a Finder-style
+            // accent pill behind the caption.
+            borderImageView?.isSelected = isSelected
+            borderImageView?.isActiveSelection = isActive
+            captionPillBackground?.layer?.backgroundColor = isSelected ? accent : NSColor.clear.cgColor
+            captionLabel?.textColor = isSelected ? .white : .secondaryLabelColor
         case .tile:
-            tileBackgroundView?.layer?.borderColor = isSelected ? NSColor.controlAccentColor.cgColor : .clear
+            tileBackgroundView?.layer?.borderColor = isSelected ? accent : .clear
         case .borderless:
             view.layer?.borderWidth = isSelected ? 4.0 : 0
-            view.layer?.borderColor = isSelected ? NSColor.controlAccentColor.cgColor : .clear
+            view.layer?.borderColor = isSelected ? accent : .clear
         }
+    }
+
+    /// Whether the selection should render in the active accent
+    /// colour. Active when the cell's collection view is the key
+    /// window's first responder.
+    private var isSelectionActive: Bool {
+        guard let window = view.window, window.isKeyWindow else { return false }
+        var ancestor: NSView? = view.superview
+        while let current = ancestor {
+            if current as? NSCollectionView != nil {
+                return window.firstResponder === current
+            }
+            ancestor = current.superview
+        }
+        return false
     }
 }

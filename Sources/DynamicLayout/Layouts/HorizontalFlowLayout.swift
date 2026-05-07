@@ -8,49 +8,89 @@
 import AppKit
 
 public class HorizontalFlowLayout: NSCollectionViewFlowLayout, LayoutItemsProvider {
-    public var spacingPercentage: CGFloat = 0.05
+    public var spacingPercentage: CGFloat = 0.02
 
     public var items: [LayoutItemFrame] = []
 
+    /// Forces every cell to be a perfect square at the available
+    /// height — used by the tile item style so the framed tile fills
+    /// the row instead of adopting the image's aspect ratio.
+    public var useSquareCells: Bool = false
+
+    /// Fires from `prepare()` with the current `availableHeight` so
+    /// the host can push a layout-aware scale reference (cell height)
+    /// down to its cells without having to observe the collection
+    /// view's frame separately.
+    public var onLayoutPrepared: ((CGFloat) -> Void)?
+
     private var cache = [NSCollectionViewLayoutAttributes]()
     private var oldCache: [IndexPath: NSCollectionViewLayoutAttributes] = [:]
+    /// Total content width, mirrored from the last `prepare()` so
+    /// `collectionViewContentSize` is O(1) — NSCollectionView reads
+    /// that property repeatedly per scroll frame.
+    private var contentWidth: CGFloat = 0
+    /// Last `availableHeight` we pushed to the host via
+    /// `onLayoutPrepared`. Lets us skip the visible-cell iteration
+    /// when nothing about the layout's effective scale changed.
+    private var lastAvailableHeight: CGFloat = -1
 
     override public func prepare() {
         super.prepare()
 
         cache.removeAll()
+        contentWidth = 0
 
         guard let collectionView else { return }
 
-        let availableHeight = collectionView.bounds.height - sectionInset.top - sectionInset.bottom
-        let spacing = availableHeight * spacingPercentage
+        // Same gutter-matches-gap policy as Waterfall / VerticalFlow:
+        // derive spacing from the full bounds first, mirror it into
+        // sectionInset, then compute available height — avoids the
+        // feedback loop that would otherwise shift the value each
+        // prepare pass.
+        let totalHeight = collectionView.bounds.height
+        let spacing = totalHeight * spacingPercentage
+        sectionInset = NSEdgeInsets(top: spacing, left: spacing, bottom: spacing, right: spacing)
+        let availableHeight = totalHeight - sectionInset.top - sectionInset.bottom
 
         minimumInteritemSpacing = spacing
         minimumLineSpacing = spacing
         scrollDirection = .horizontal
+
+        // Only push when the effective scale actually changed; the
+        // didSet on each cell's `scaleReference` triggers a layout
+        // pass per cell and we don't want that on every prepare()
+        // (e.g. plain scrolling) when nothing relevant moved.
+        if availableHeight != lastAvailableHeight {
+            lastAvailableHeight = availableHeight
+            onLayoutPrepared?(availableHeight)
+        }
 
         var xOffset: CGFloat = sectionInset.left
 
         for (index, item) in items.enumerated() {
             let indexPath = IndexPath(item: index, section: 0)
             let attributes = NSCollectionViewLayoutAttributes(forItemWith: indexPath)
-            let itemWidth = availableHeight * item.aspectRatio
+            let itemWidth = useSquareCells ? availableHeight : availableHeight * item.aspectRatio
 
             attributes.frame = CGRect(x: xOffset, y: sectionInset.top, width: itemWidth, height: availableHeight)
             cache.append(attributes)
 
             xOffset += itemWidth + spacing
         }
+
+        // Cache content width for O(1) `collectionViewContentSize`.
+        // Last item's maxX + right inset; spacing already baked into
+        // xOffset advances above.
+        if let last = cache.last {
+            contentWidth = last.frame.maxX + sectionInset.right
+        } else {
+            contentWidth = sectionInset.left + sectionInset.right
+        }
     }
 
     override public var collectionViewContentSize: NSSize {
         guard let collectionView else { return .zero }
-        let totalWidth = items.reduce(sectionInset.left) { result, item -> CGFloat in
-            let itemHeight = collectionView.bounds.height - sectionInset.top - sectionInset.bottom
-            let itemWidth = itemHeight * item.aspectRatio
-            return result + itemWidth + minimumInteritemSpacing
-        } - minimumInteritemSpacing + sectionInset.right
-        return CGSize(width: totalWidth, height: collectionView.bounds.height)
+        return CGSize(width: contentWidth, height: collectionView.bounds.height)
     }
 
     override public func layoutAttributesForElements(in rect: NSRect) -> [NSCollectionViewLayoutAttributes] {
