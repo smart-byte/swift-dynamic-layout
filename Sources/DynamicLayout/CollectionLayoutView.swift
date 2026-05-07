@@ -40,6 +40,14 @@ public struct CollectionLayoutView: NSViewRepresentable {
     var syncImageProvider: SyncImageProvider
     /// Async image loader — delivers on the main queue. See `ImageProvider.swift`.
     var asyncImageProvider: ImageProvider
+    /// Allows the user to drag a cell within the same collection view
+    /// to reorder it. Off by default — most apps (Voila included)
+    /// drive item ordering from a sort descriptor or external model
+    /// state, where a manual in-pane reorder would conflict with the
+    /// authoritative order on the next reload. Cross-pane drags
+    /// between two collection views remain unaffected; they go
+    /// through the external drop-validator path.
+    var allowsInternalReorder: Bool = false
 
     public init(
         layoutItems: Binding<[LayoutItemFrame]>,
@@ -55,7 +63,8 @@ public struct CollectionLayoutView: NSViewRepresentable {
         dropPerformer: DropPerformer? = nil,
         urlForFrame: @escaping (UUID) -> URL?,
         syncImageProvider: @escaping SyncImageProvider,
-        asyncImageProvider: @escaping ImageProvider
+        asyncImageProvider: @escaping ImageProvider,
+        allowsInternalReorder: Bool = false
     ) {
         _layoutItems = layoutItems
         _selection = selection
@@ -71,6 +80,7 @@ public struct CollectionLayoutView: NSViewRepresentable {
         self.urlForFrame = urlForFrame
         self.syncImageProvider = syncImageProvider
         self.asyncImageProvider = asyncImageProvider
+        self.allowsInternalReorder = allowsInternalReorder
     }
 
     public func makeNSView(context: Context) -> NSScrollView {
@@ -212,6 +222,7 @@ public struct CollectionLayoutView: NSViewRepresentable {
         CATransaction.commit()
 
         coordinator.animateFromOldFrames(oldFrames, in: collectionView, duration: 0.3)
+        scheduleDeferredInvalidate(collectionView)
     }
 
     private func applyItemsChange(
@@ -240,6 +251,20 @@ public struct CollectionLayoutView: NSViewRepresentable {
             CATransaction.commit()
         } else {
             animateDiff(collectionView: collectionView, coordinator: coordinator, oldIDs: oldIDs, newIDs: newIDs)
+        }
+        scheduleDeferredInvalidate(collectionView)
+    }
+
+    /// Belt-and-suspenders re-invalidate on the next runloop. Covers
+    /// the timing window where `prepare()` runs against transient cv
+    /// bounds (zero / mid-tab-swap / right after restart) before the
+    /// scroll view has propagated its final size — without this the
+    /// layout sometimes lands a 2x2-pixel cache and never recovers
+    /// because `shouldInvalidateLayout` won't fire on the bounds
+    /// change AppKit silently applies right after layoutSubtree.
+    private func scheduleDeferredInvalidate(_ collectionView: NSCollectionView) {
+        DispatchQueue.main.async { [weak collectionView] in
+            collectionView?.collectionViewLayout?.invalidateLayout()
         }
     }
 
@@ -374,13 +399,18 @@ public class Coordinator: NSObject, NSCollectionViewDataSource, NSCollectionView
         // swiftlint:disable:next force_cast
         let item = collectionView.makeItem(withIdentifier: identifier, for: indexPath) as! ThumbnailItem
         item.itemStyle = parent.itemStyle
-        // Layout-level scale (toolbar slider) — drives the photo-
-        // frame matte thickness so it stays uniform across cells of
-        // different aspects in the same layout.
-        item.scaleReference = parent.targetSize
 
         let cellSize = collectionView.layoutAttributesForItem(at: indexPath)?.frame.size
         let maxDim = max(cellSize?.width ?? 256, cellSize?.height ?? 256)
+
+        // Layout-level scale drives the photo-frame matte thickness
+        // so it stays uniform across cells in the same layout. For
+        // horizontalFlow the cell height is what's uniform (the
+        // toolbar slider is decoupled there), for everything else the
+        // toolbar slider's targetSize is the right reference.
+        item.scaleReference = parent.layoutMode == .horizontalFlow
+            ? cellSize?.height ?? parent.targetSize
+            : parent.targetSize
 
         // Resolve frame ID → URL via the host-injected closure.
         // This is an O(N) lookup in the host's FileLayoutItem array.

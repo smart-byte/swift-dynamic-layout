@@ -140,12 +140,38 @@ public extension Coordinator {
         // takes over, or until `endedAt` clears the cache.
         adaptDraggingPreview(info: info, in: collectionView, isInternal: isInternal)
 
-        // Internal reorder uses the existing insertion-line UI: zone-based
-        // dropIndex + a thin accent line between items. External drags
-        // never see the insertion line — they pick between a folder-cell
-        // highlight (drop INTO directory) or a pane-level border (drop
-        // into the pane's own folder), which matches Finder's affordance.
+        // Folder-cell drop target FIRST — applies to both internal
+        // and external drags so a same-pane drag onto a sibling
+        // subfolder is a real move (matches FileListView). Refusing
+        // an internal drag wholesale up here would block that case.
+        // NSCollectionView paints `.asDropTarget` on the indicated
+        // cell automatically; ThumbnailItem renders the accent border.
+        if let hitIndexPath = collectionView.indexPathForItem(at: point),
+           hitIndexPath.item < parent.layoutItems.count,
+           let folderURL = directoryURL(at: hitIndexPath),
+           let op = dropValidator?(info, folderURL), op != []
+        {
+            proposedDropOperation.pointee = .on
+            proposedDropIndexPath.pointee = NSIndexPath(forItem: hitIndexPath.item, inSection: 0)
+            nibless?.setDropTargetHighlight(false)
+            nibless?.hideDropIndicator()
+            return op
+        }
+
+        // Internal drag landed on whitespace or a non-folder cell —
+        // moving into the same folder we came from is a no-op, so
+        // refuse it (or render the reorder line if reorder is on).
+        // Either way, pane-border highlight stays off — the cue for
+        // "drop here = parent folder" only makes sense for external
+        // drags coming from outside this pane.
         if isInternal {
+            guard parent.allowsInternalReorder else {
+                proposedDropOperation.pointee = .before
+                proposedDropIndexPath.pointee = NSIndexPath(forItem: parent.layoutItems.count, inSection: 0)
+                nibless?.hideDropIndicator()
+                nibless?.setDropTargetHighlight(false)
+                return []
+            }
             proposedDropOperation.pointee = .before
             updateInternalReorderIndicator(
                 collectionView: collectionView,
@@ -156,26 +182,11 @@ public extension Coordinator {
             return .move
         }
 
-        // External / cross-pane drag — no insertion line.
+        // External drag on whitespace / non-folder cell — drop into
+        // the pane's own folder. Out-of-range index + `.before` keeps
+        // NSCollectionView from painting `.asDropTarget` on a random
+        // cell; the pane border is the cue.
         nibless?.hideDropIndicator()
-
-        // Folder-cell drop target: NSCollectionView applies
-        // `.asDropTarget` to the cell at `proposedDropIndexPath`, which
-        // ThumbnailItem renders as a border overlay.
-        if let hitIndexPath = collectionView.indexPathForItem(at: point),
-           hitIndexPath.item < parent.layoutItems.count,
-           let folderURL = directoryURL(at: hitIndexPath),
-           let op = dropValidator?(info, folderURL), op != []
-        {
-            proposedDropOperation.pointee = .on
-            proposedDropIndexPath.pointee = NSIndexPath(forItem: hitIndexPath.item, inSection: 0)
-            nibless?.setDropTargetHighlight(false)
-            return op
-        }
-
-        // Whitespace drop into the pane's own folder. Keep `.before` with
-        // an out-of-range index so NSCollectionView doesn't paint
-        // `.asDropTarget` on a random cell; the pane border is the cue.
         proposedDropOperation.pointee = .before
         proposedDropIndexPath.pointee = NSIndexPath(
             forItem: parent.layoutItems.count, inSection: 0
@@ -299,7 +310,7 @@ public extension Coordinator {
 
         let isInternal = draggingInfo.draggingSource as? NSCollectionView == collectionView
 
-        if isInternal, let draggedIndex = draggedIndexPaths.first?.item {
+        if isInternal, parent.allowsInternalReorder, let draggedIndex = draggedIndexPaths.first?.item {
             return handleInternalDrop(collectionView: collectionView, draggedIndex: draggedIndex)
         }
 

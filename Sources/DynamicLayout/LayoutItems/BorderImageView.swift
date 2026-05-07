@@ -67,6 +67,11 @@ class BorderImageView: NSView {
 
     private let imageView = NSImageView()
     private let matteLayer = CALayer()
+    /// Cached matte size from the last layout pass — drives a
+    /// shouldRecreateShadowPath check so we don't allocate a fresh
+    /// CGPath on every layout call (resize / scaleReference push
+    /// would otherwise burn one CGPath per visible cell per pass).
+    private var lastMatteSize: CGSize = .zero
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -91,7 +96,7 @@ class BorderImageView: NSView {
         matteLayer.shadowOpacity = 1
         matteLayer.shadowRadius = 3
         matteLayer.shadowOffset = NSSize(width: 0, height: -1.5)
-        matteLayer.actions = noImplicitActions
+        matteLayer.actions = Self.noImplicitActions
         layer?.addSublayer(matteLayer)
 
         imageView.imageScaling = .scaleProportionallyUpOrDown
@@ -137,21 +142,25 @@ class BorderImageView: NSView {
         // shadowPath is keyed off layer bounds (origin-zero), not the
         // outer frame — keeps the halo crisp and avoids the per-frame
         // alpha-mask sampling CALayer falls back to without a path.
-        matteLayer.shadowPath = CGPath(
-            rect: CGRect(origin: .zero, size: matte.size),
-            transform: nil
-        )
+        // Only recreate when the matte's size actually changes; cell
+        // reuse + scroll trigger layout() with identical sizes most
+        // of the time and CGPath allocation isn't free.
+        if matte.size != lastMatteSize {
+            lastMatteSize = matte.size
+            matteLayer.shadowPath = CGPath(
+                rect: CGRect(origin: .zero, size: matte.size),
+                transform: nil
+            )
+        }
     }
 
-    private var noImplicitActions: [String: any CAAction] {
-        [
-            "position": NSNull(),
-            "bounds": NSNull(),
-            "frame": NSNull(),
-            "backgroundColor": NSNull(),
-            "hidden": NSNull(),
-        ]
-    }
+    private static let noImplicitActions: [String: any CAAction] = [
+        "position": NSNull(),
+        "bounds": NSNull(),
+        "frame": NSNull(),
+        "backgroundColor": NSNull(),
+        "hidden": NSNull(),
+    ]
 
     private func applySelectionAppearance() {
         // Selection draws as an accent border directly on the matte's

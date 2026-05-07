@@ -27,10 +27,18 @@ public class WaterfallLayout: NSCollectionViewLayout, LayoutItemsProvider {
 
         guard let collectionView else { return }
 
-        let width = collectionView.bounds.width - sectionInset.left - sectionInset.right
-        let initialColumnWidth = width / CGFloat(columns)
-        let spacing = initialColumnWidth * spacingPercentage
+        // Derive spacing from the full bounds first, then mirror it
+        // into sectionInset so the gutter at the edge of the scroll
+        // area matches the gap between items. Computing spacing
+        // independently of sectionInset avoids a feedback loop where
+        // each prepare pass would shift the value.
+        let totalWidth = collectionView.bounds.width
+        let nominalColumnWidth = totalWidth / CGFloat(columns)
+        let spacing = nominalColumnWidth * spacingPercentage
         computedSpacing = spacing
+        sectionInset = NSEdgeInsets(top: spacing, left: spacing, bottom: spacing, right: spacing)
+
+        let width = totalWidth - sectionInset.left - sectionInset.right
         let columnWidth = (width - CGFloat(columns - 1) * spacing) / CGFloat(columns)
 
         var xOffset: [CGFloat] = []

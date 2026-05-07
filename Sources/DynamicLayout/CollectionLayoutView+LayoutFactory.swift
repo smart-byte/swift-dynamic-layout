@@ -13,21 +13,25 @@ import AppKit
 extension CollectionLayoutView {
     /// Build a fresh layout for the current `layoutMode` / `itemStyle`.
     /// Reads everything off `self` so callers stay one-liners.
+    ///
+    /// Section insets match the inter-item spacing so the gutter at
+    /// the scroll-area edge reads as the same visual gap as between
+    /// items. Waterfall and verticalFlow re-derive their inset inside
+    /// `prepare()` (their spacing depends on bounds + slider); the
+    /// other modes have a fixed item spacing and use a matching inset
+    /// directly here.
     func createLayout() -> NSCollectionViewLayout {
-        let insets = NSEdgeInsets(top: 20, left: 20, bottom: 20, right: 20)
         let squareCells = itemStyle == .tile
 
         switch layoutMode {
         case .verticalFlow, .list:
             let layout = VerticalFlowLayout()
-            layout.sectionInset = insets
             layout.items = layoutItems
             layout.spacingPercentage = itemSpacing
             return layout
 
         case .waterfall:
             let layout = WaterfallLayout()
-            layout.sectionInset = insets
             layout.items = layoutItems
             layout.columns = columns
             layout.spacingPercentage = itemSpacing
@@ -36,15 +40,27 @@ extension CollectionLayoutView {
         case .horizontalFlow:
             let layout = HorizontalFlowLayout()
             layout.items = layoutItems
-            layout.sectionInset = insets
-            layout.minimumInteritemSpacing = 10
-            layout.minimumLineSpacing = 10
+            layout.spacingPercentage = itemSpacing
+            layout.useSquareCells = squareCells
+            // The toolbar slider doesn't control horizontalFlow's
+            // cell size — cells stretch to the available cell height.
+            // Push that height down as the layout-level scaleReference
+            // so the photoFrame matte stays uniform across cells
+            // regardless of where the slider sits, and stays in sync
+            // when the window resizes (prepare fires on every bounds
+            // change).
+            layout.onLayoutPrepared = { [weak layout] availableHeight in
+                guard let cv = layout?.collectionView else { return }
+                for item in cv.visibleItems() {
+                    (item as? ThumbnailItem)?.scaleReference = availableHeight
+                }
+            }
             return layout
 
         case .justified:
             let layout = JustifiedLayout()
             layout.items = layoutItems
-            layout.sectionInset = insets
+            layout.sectionInset = NSEdgeInsets(top: 4, left: 4, bottom: 4, right: 4)
             layout.spacing = 4
             layout.targetRowHeight = targetSize
             layout.useSquareCells = squareCells
@@ -53,7 +69,7 @@ extension CollectionLayoutView {
         case .horizontalJustified:
             let layout = HorizontalJustifiedLayout()
             layout.items = layoutItems
-            layout.sectionInset = insets
+            layout.sectionInset = NSEdgeInsets(top: 4, left: 4, bottom: 4, right: 4)
             layout.spacing = 4
             layout.targetColumnWidth = targetSize
             layout.useSquareCells = squareCells
@@ -82,6 +98,9 @@ extension CollectionLayoutView {
         } else if let layout = layout as? WaterfallLayout {
             layout.spacingPercentage = itemSpacing
             layout.columns = columns
+        } else if let layout = layout as? HorizontalFlowLayout {
+            layout.spacingPercentage = itemSpacing
+            layout.useSquareCells = squareCells
         } else if let layout = layout as? JustifiedLayout {
             layout.targetRowHeight = targetSize
             layout.useSquareCells = squareCells

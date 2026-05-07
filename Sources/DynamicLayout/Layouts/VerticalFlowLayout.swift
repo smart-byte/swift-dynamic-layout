@@ -27,8 +27,15 @@ public class VerticalFlowLayout: NSCollectionViewLayout, LayoutItemsProvider {
 
         guard let collectionView else { return }
 
-        let availableWidth = collectionView.bounds.width - sectionInset.left - sectionInset.right
-        let spacing = availableWidth * spacingPercentage
+        // Derive spacing from the full bounds first, then mirror it
+        // into sectionInset so the gutter at the edge of the scroll
+        // area matches the gap between items. Computing spacing
+        // independently of sectionInset avoids a feedback loop where
+        // each prepare pass would shift the value.
+        let totalWidth = collectionView.bounds.width
+        let spacing = totalWidth * spacingPercentage
+        sectionInset = NSEdgeInsets(top: spacing, left: spacing, bottom: spacing, right: spacing)
+        let availableWidth = totalWidth - sectionInset.left - sectionInset.right
 
         var yOffset: CGFloat = sectionInset.top
 
