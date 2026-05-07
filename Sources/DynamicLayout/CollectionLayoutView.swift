@@ -169,6 +169,16 @@ public struct CollectionLayoutView: NSViewRepresentable {
             applyPropertyChange(collectionView: collectionView, coordinator: coordinator)
         }
 
+        // Slider drives photo-frame matte thickness via
+        // `scaleReference` on each cell. Push the new value to
+        // already-visible cells when the slider moves; new / reused
+        // cells pick it up via `itemForRepresentedObjectAt`.
+        if targetSizeChanged {
+            for item in collectionView.visibleItems() {
+                (item as? ThumbnailItem)?.scaleReference = targetSize
+            }
+        }
+
         coordinator.lastSpacing = itemSpacing
         coordinator.lastColumns = columns
         coordinator.lastTargetSize = targetSize
@@ -364,6 +374,10 @@ public class Coordinator: NSObject, NSCollectionViewDataSource, NSCollectionView
         // swiftlint:disable:next force_cast
         let item = collectionView.makeItem(withIdentifier: identifier, for: indexPath) as! ThumbnailItem
         item.itemStyle = parent.itemStyle
+        // Layout-level scale (toolbar slider) — drives the photo-
+        // frame matte thickness so it stays uniform across cells of
+        // different aspects in the same layout.
+        item.scaleReference = parent.targetSize
 
         let cellSize = collectionView.layoutAttributesForItem(at: indexPath)?.frame.size
         let maxDim = max(cellSize?.width ?? 256, cellSize?.height ?? 256)
