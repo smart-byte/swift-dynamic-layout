@@ -5,7 +5,7 @@
 [![macOS](https://img.shields.io/badge/macOS-14%2B-blue?logo=apple&logoColor=white)](https://www.apple.com/macos/)
 [![Swift](https://img.shields.io/badge/Swift-5.9%2B-orange?logo=swift&logoColor=white)](https://swift.org)
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-1.1.2-lightgrey)](https://github.com/smart-byte/swift-dynamic-layout/releases)
+[![Version](https://img.shields.io/badge/Version-1.2.0-lightgrey)](https://github.com/smart-byte/swift-dynamic-layout/releases)
 
 </div>
 
@@ -19,7 +19,7 @@ A Swift package providing pluggable `NSCollectionViewLayout` algorithms for macO
 ## Installation
 
 ```swift
-.package(url: "https://github.com/smart-byte/swift-dynamic-layout.git", from: "1.1.0"),
+.package(url: "https://github.com/smart-byte/swift-dynamic-layout.git", from: "1.2.0"),
 ```
 
 Add `DynamicLayout` to your target's dependencies.
@@ -112,16 +112,38 @@ These are called for both whitespace drops and folder-row drops; the second `URL
 
 In-pane reordering is opt-in via `allowsInternalReorder` (off by default). Most apps drive item order from a sort descriptor or external model state, where a manual reorder would conflict with the authoritative order on the next reload. Cross-pane drags between two collection views always go through the external drop-validator path and are unaffected.
 
+## Inline rename
+
+Cells can enter Finder-style inline rename mode without any extra
+host wiring beyond an `ItemActionHandler`. Triggers fired by the
+package:
+
+- Slow second click (single click on the already-singly-selected
+  cell, ~0.5 s after the previous click)
+- `Return` key on a single-selected cell
+- Right-click → `Rename` (single selection only)
+
+The package flips the caption label to editable, makes it first
+responder, and pre-selects the basename for files / the whole name
+for folders the way Finder does. On commit the host receives the
+new value via the `ItemActionHandler` — the host owns the actual
+filesystem rename and validation:
+
+```swift
+func didRequestRename(_ url: URL, to newName: String) {
+    // Move the file, refresh the listing, register an undo, etc.
+}
+```
+
+The protocol method has a default no-op, so apps upgrading from
+1.1.x keep compiling unchanged — they just don't see a rename
+emit until they implement it.
+
 ## Status
 
-`v1.1.1` — Finder-feel polish over the v1.0.0 extraction baseline:
+`v1.2.0` — Inline rename on collection-mode cells, `ItemActionHandler.didRequestRename(_:to:)`, plus a `Rename` entry on `ItemContextMenuBuilder`. List-mode rename stays host-driven for now.
 
-- `photoFrame` matte uses `scaleReference` (toolbar-driven on most layouts, cell-height-driven on `horizontalFlow`) so its thickness reads uniformly across cells of any aspect.
-- Selection rendered as an accent border on the matte plus a Finder-style accent caption pill; inactive panes fade to a secondary tint.
-- `gutter == inter-item-spacing` for all collection layouts.
-- `HorizontalFlowLayout` gains `useSquareCells` (tile-style square cells) and `O(1)` `collectionViewContentSize`.
-- Race-condition fix for transient zero / mid-resize bounds during tab swaps and restart.
-- Folder-cell-first drop affordance, matching `NSTableView`'s native list behaviour.
+`v1.1.x` — Finder-feel polish over the v1.0.0 extraction baseline: `photoFrame` matte driven by `scaleReference`, selection accent border + caption pill, `gutter == inter-item-spacing`, `HorizontalFlowLayout` square cells + `O(1)` content size, host-selection preservation across `reloadData()`, folder-cell-first drop affordance.
 
 Production-tested in a real file browser with thousands of items per folder.
 

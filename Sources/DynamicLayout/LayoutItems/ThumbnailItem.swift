@@ -50,6 +50,16 @@ public class ThumbnailItem: NSCollectionViewItem {
     private var currentURL: URL?
     private var pendingImage: NSImage?
 
+    /// URL the cell currently represents. Public read-only access so
+    /// hosts can resolve cell-level interactions (rename, drag-target
+    /// resolution) without keeping a parallel indexPath → URL map.
+    public var representedFileURL: URL? { currentURL }
+
+    /// Holds the inline-rename adapter while caption editing is in
+    /// progress. `nil` outside edit mode. Cleared when commit /
+    /// cancel fires or `prepareForReuse` is called.
+    private var captionEditAdapter: CaptionEditAdapter?
+
     /// Overlay for the `.asDropTarget` highlight state. Lazy so cells that
     /// never become drop targets pay no allocation cost. Insets so the
     /// border sits inside the cell rather than slicing the thumbnail's
@@ -110,6 +120,10 @@ public class ThumbnailItem: NSCollectionViewItem {
 
     override public func prepareForReuse() {
         super.prepareForReuse()
+        // Cancel any in-flight inline rename — the cell is about to
+        // host a different file, so even if the user had typed
+        // something we mustn't commit it against the old URL.
+        cancelCaptionEditingIfNeeded()
         currentURL = nil
         borderImageView?.image = nil
         plainImageView?.image = nil
@@ -624,5 +638,204 @@ public class ThumbnailItem: NSCollectionViewItem {
             ancestor = current.superview
         }
         return false
+    }
+
+    // MARK: - Inline Caption Editing
+
+    /// Whether the cell's caption is currently in inline-rename
+    /// mode. Hosts read this to gate competing UI (e.g. don't
+    /// retrigger rename on a click that lands during edit).
+    public var isEditingCaption: Bool { captionEditAdapter != nil }
+
+    /// Flips the caption label into edit mode and makes it first
+    /// responder. Selects the basename (everything before the file
+    /// extension) for files, or the entire name for folders — same
+    /// pre-selection rule Finder uses.
+    ///
+    /// `commit` fires with the trimmed value when the user confirms
+    /// (Return / Tab / click outside). `cancel` fires for ESC and
+    /// for empty / unchanged values. The caption returns to its
+    /// non-editable rendering after either callback. Caller is
+    /// responsible for the actual filesystem rename and for
+    /// validating the new name (collisions, illegal characters).
+    public func beginCaptionEditing(
+        commit: @escaping (String) -> Void,
+        cancel: @escaping () -> Void
+    ) {
+        guard let textField = captionLabel,
+              let url = currentURL,
+              !isEditingCaption
+        else {
+            cancel()
+            return
+        }
+
+        // Make the borderless caption pill stay visible during edit
+        // — at-rest borderless cells fade the pill out when the
+        // pointer leaves the cell. Without this, the field editor
+        // would hover over an invisible label and the user would
+        // see a phantom cursor with no surrounding text.
+        if itemStyle == .borderless {
+            captionPill?.alphaValue = 1
+        }
+
+        let original = textField.stringValue
+        textField.isEditable = true
+        textField.isSelectable = true
+        textField.isBezeled = true
+        textField.bezelStyle = .squareBezel
+        textField.drawsBackground = true
+        textField.backgroundColor = .textBackgroundColor
+        textField.textColor = .labelColor
+        textField.focusRingType = .default
+
+        let adapter = CaptionEditAdapter(
+            owner: self,
+            originalValue: original,
+            commit: commit,
+            cancel: cancel
+        )
+        captionEditAdapter = adapter
+        textField.delegate = adapter
+
+        guard let window = view.window else {
+            cancelCaptionEditingIfNeeded()
+            cancel()
+            return
+        }
+        window.makeFirstResponder(textField)
+
+        guard let editor = textField.currentEditor() else { return }
+        let full = textField.stringValue as NSString
+        let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+        if isDirectory {
+            editor.selectedRange = NSRange(location: 0, length: full.length)
+        } else {
+            let ext = (full as NSString).pathExtension
+            let stemLength = ext.isEmpty ? full.length : full.length - (ext as NSString).length - 1
+            editor.selectedRange = NSRange(location: 0, length: max(stemLength, 0))
+        }
+    }
+
+    /// Synchronously aborts any in-progress inline rename, restoring
+    /// the caption label's read-only chrome and dropping the
+    /// adapter. Called from `prepareForReuse` — the cell is about
+    /// to host a different file, so committing whatever the user
+    /// typed against the old URL would be wrong. The cancel
+    /// callback fires so the host can run any cleanup it owns.
+    fileprivate func cancelCaptionEditingIfNeeded() {
+        guard let adapter = captionEditAdapter else { return }
+        captionEditAdapter = nil
+        adapter.markFinished()
+        if let textField = captionLabel {
+            window?.makeFirstResponder(view.window)
+            restoreCaptionChrome(textField)
+            textField.stringValue = adapter.originalValue
+        }
+        adapter.cancel()
+    }
+
+    /// Restores the read-only NSTextField look the cell uses at
+    /// rest. Mirrors the choices made in `makeCaptionLabel`.
+    fileprivate func restoreCaptionChrome(_ textField: NSTextField) {
+        textField.isEditable = false
+        textField.isSelectable = false
+        textField.isBezeled = false
+        textField.drawsBackground = false
+        textField.focusRingType = .none
+        textField.delegate = nil
+        textField.backgroundColor = .clear
+        // Color depends on the style; use the per-style choice from
+        // makeCaptionLabel/setup so post-edit colour matches at-rest.
+        switch itemStyle {
+        case .photoFrame:
+            textField.textColor = .secondaryLabelColor
+        case .tile:
+            textField.textColor = .labelColor
+        case .borderless:
+            textField.textColor = .white
+        }
+        // Refresh the borderless pill visibility in case we forced
+        // it visible at edit start.
+        if itemStyle == .borderless {
+            captionPill?.alphaValue = isHovered ? 1 : 0
+        }
+    }
+
+    /// Internal hook called by `CaptionEditAdapter` when its
+    /// underlying NSTextField fires controlTextDidEndEditing. The
+    /// adapter has already cleared its own `didFinish` flag and
+    /// resolved commit-vs-cancel; this method just unwinds the
+    /// cell-level state.
+    fileprivate func captionEditingDidEnd() {
+        captionEditAdapter = nil
+        if let textField = captionLabel {
+            restoreCaptionChrome(textField)
+        }
+    }
+
+    var window: NSWindow? { view.window }
+}
+
+/// NSTextFieldDelegate adapter that bridges the cell's edit-mode
+/// text field to the host-supplied commit / cancel closures.
+/// Implemented as a separate object so `ThumbnailItem` itself stays
+/// free of NSControlTextEditingDelegate boilerplate, and so we can
+/// nil out the delegate on the textField cleanly when editing ends.
+@MainActor
+private final class CaptionEditAdapter: NSObject, NSTextFieldDelegate {
+    private weak var owner: ThumbnailItem?
+    let originalValue: String
+    let commit: (String) -> Void
+    let cancel: () -> Void
+    /// Guards against double-firing when the cancel path tears the
+    /// edit down explicitly (which itself triggers
+    /// controlTextDidEndEditing). Without this we'd send the host
+    /// both a synthetic cancel AND a delegate-callback commit.
+    private var didFinish = false
+
+    init(
+        owner: ThumbnailItem,
+        originalValue: String,
+        commit: @escaping (String) -> Void,
+        cancel: @escaping () -> Void
+    ) {
+        self.owner = owner
+        self.originalValue = originalValue
+        self.commit = commit
+        self.cancel = cancel
+    }
+
+    func markFinished() { didFinish = true }
+
+    func controlTextDidEndEditing(_ obj: Notification) {
+        guard !didFinish else { return }
+        didFinish = true
+
+        let textField = obj.object as? NSTextField
+        let proposed = textField?.stringValue ?? ""
+
+        // The control's userInfo carries the NSTextMovement that
+        // ended editing — Return / Tab vs ESC. ESC means the user
+        // cancelled the edit; everything else is a commit attempt
+        // (host re-validates).
+        let movementRaw = obj.userInfo?["NSTextMovement"] as? Int ?? 0
+        let isCancel = movementRaw == NSTextMovement.cancel.rawValue
+
+        owner?.captionEditingDidEnd()
+
+        if isCancel {
+            textField?.stringValue = originalValue
+            cancel()
+            return
+        }
+
+        let trimmed = proposed.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty || trimmed == originalValue {
+            textField?.stringValue = originalValue
+            cancel()
+        } else {
+            commit(trimmed)
+        }
     }
 }

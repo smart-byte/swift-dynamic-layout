@@ -18,6 +18,7 @@ public enum ItemContextMenuBuilder {
         openInNewWindow: ((URL) -> Void)? = nil,
         openInNewPane: ((URL) -> Void)? = nil,
         copyPath: (([URL]) -> Void)? = nil,
+        rename: ((URL) -> Void)? = nil,
         moveToTrash: (([URL]) -> Void)? = nil
     ) -> NSMenu {
         let menu = NSMenu()
@@ -39,6 +40,11 @@ public enum ItemContextMenuBuilder {
         }
         menu.addItem(.separator())
         addRevealAndCopyItems(to: menu, urls: urls, isMulti: isMulti, copyPath: copyPath)
+        // Single-selection only — rename has no meaningful semantics
+        // for multi-selection, and Finder's UI gates it the same way.
+        if !isMulti, let rename {
+            menu.addItem(makeItem(title: "Rename", icon: "pencil") { rename(firstURL) })
+        }
         if let moveToTrash {
             menu.addItem(.separator())
             menu.addItem(makeItem(title: "Move to Trash", icon: "trash") { moveToTrash(urls) })

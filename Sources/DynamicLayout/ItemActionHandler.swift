@@ -45,4 +45,19 @@ public protocol ItemActionHandler: AnyObject {
     /// reveal wired inline in `ItemContextMenuBuilder`, which takes a
     /// `[URL]` of items; this one targets the pane's own location.
     func didRequestRevealFolderInFinder(_ folderURL: URL)
+
+    /// Rename `url` to `newName` (last path component only — host
+    /// keeps the parent directory). Fired by inline cell editing
+    /// (Finder slow-second-click or Return on a single-selected
+    /// cell) and by the context menu's "Rename" entry. Has a
+    /// default no-op so apps that haven't migrated to v1.2 keep
+    /// compiling unchanged.
+    func didRequestRename(_ url: URL, to newName: String)
+}
+
+public extension ItemActionHandler {
+    /// Default no-op preserves source compatibility for callers
+    /// upgrading from <1.2 — apps that don't wire rename simply get
+    /// a no-effect cell edit.
+    func didRequestRename(_: URL, to _: String) {}
 }

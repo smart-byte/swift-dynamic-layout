@@ -24,6 +24,12 @@ class NiblessCollectionView: NSCollectionView {
     weak var quickLookCoordinator: Coordinator?
     var actionHandler: (any ItemActionHandler)?
 
+    /// Pending "Finder slow-second-click" rename trigger. Cancelled
+    /// on every fresh mouseDown so a double-click never gets
+    /// misread as a slow-second-click on the same row. ~0.5 s
+    /// matches macOS HIG.
+    private var pendingRenameWorkItem: DispatchWorkItem?
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         let center = NotificationCenter.default
@@ -107,14 +113,45 @@ class NiblessCollectionView: NSCollectionView {
         fatalError("Unknown item identifier: \(identifier.rawValue)")
     }
 
-    // MARK: - Quick Look
+    // MARK: - Quick Look + Inline Rename Triggers
 
     override func keyDown(with event: NSEvent) {
+        // Return on a single-selected cell → enter inline rename
+        // mode. Routed through `actionHandler` once the user
+        // confirms the new name. Falls through for the keyless
+        // selection case so arrow-key navigation isn't blocked.
+        if event.keyCode == 0x24, // kVK_Return
+           selectionIndexPaths.count == 1,
+           let indexPath = selectionIndexPaths.first,
+           !isAnyVisibleCellEditing
+        {
+            triggerRename(at: indexPath)
+            return
+        }
         if event.characters == " " {
             QuickLookHelpers.togglePanel()
         } else {
             super.keyDown(with: event)
         }
+    }
+
+    /// Whether any visible cell is currently in inline-rename mode
+    /// — used to gate competing UI (a click during edit shouldn't
+    /// retrigger rename, a Return shouldn't fire a second time).
+    private var isAnyVisibleCellEditing: Bool {
+        visibleItems().contains { ($0 as? ThumbnailItem)?.isEditingCaption == true }
+    }
+
+    private func triggerRename(at indexPath: IndexPath) {
+        guard let cell = item(at: indexPath) as? ThumbnailItem,
+              let url = cell.representedFileURL
+        else { return }
+        cell.beginCaptionEditing(
+            commit: { [weak self] newName in
+                self?.actionHandler?.didRequestRename(url, to: newName)
+            },
+            cancel: {}
+        )
     }
 
     override func acceptsPreviewPanelControl(_: QLPreviewPanel!) -> Bool {
@@ -182,26 +219,67 @@ class NiblessCollectionView: NSCollectionView {
             openInNewWindow: { [weak self] url in self?.actionHandler?.didRequestOpenInNewWindow(url) },
             openInNewPane: { [weak self] url in self?.actionHandler?.didRequestOpenInNewPane(url) },
             copyPath: { [weak self] urls in self?.actionHandler?.didRequestCopyPath(urls) },
+            // Rename routes back through the same indexPath the right-
+            // click selected, so the cell can enter inline-edit mode
+            // (rather than firing a free-form rename dialog at the host).
+            rename: { [weak self] _ in
+                guard let self,
+                      let indexPath = clickedIndexPath
+                else { return }
+                triggerRename(at: indexPath)
+            },
             moveToTrash: { [weak self] urls in self?.actionHandler?.didRequestMoveToTrash(urls) }
         )
         NSMenu.popUpContextMenu(menu, with: event, for: self)
     }
 
-    // MARK: - Double-Click
+    // MARK: - Double-Click + Click-on-Selected
 
     override func mouseDown(with event: NSEvent) {
+        // Capture the pre-click state — `super.mouseDown` will mutate
+        // `selectionIndexPaths` if the click landed in empty space or
+        // on a different cell, so we have to read what was selected
+        // BEFORE that for the slow-second-click rename detection.
+        let point = convert(event.locationInWindow, from: nil)
+        let clickedIndex = indexPathForItem(at: point)
+        let preSelection = selectionIndexPaths
+        let wasSinglySelected = clickedIndex.map { preSelection == [$0] } ?? false
+
+        // Cancel any in-flight rename schedule. A second mouseDown
+        // within the slow-click window aborts the first; a
+        // double-click also lands here twice (clickCount 1 then 2)
+        // so the abort fires before the double-click handler runs.
+        pendingRenameWorkItem?.cancel()
+        pendingRenameWorkItem = nil
+
         super.mouseDown(with: event)
 
-        guard event.clickCount == 2 else { return }
+        if event.clickCount == 2 {
+            if clickedIndex != nil,
+               let coordinator = quickLookCoordinator,
+               let url = coordinator.selectedURLs.first
+            {
+                let cmdHeld = event.modifierFlags.contains(.command)
+                dispatchDoubleClick(url: url, cmdHeld: cmdHeld)
+            }
+            return
+        }
 
-        let point = convert(event.locationInWindow, from: nil)
-        guard indexPathForItem(at: point) != nil,
-              let coordinator = quickLookCoordinator,
-              let url = coordinator.selectedURLs.first
+        guard event.clickCount == 1,
+              wasSinglySelected,
+              let indexPath = clickedIndex,
+              !isAnyVisibleCellEditing
         else { return }
 
-        let cmdHeld = event.modifierFlags.contains(.command)
-        dispatchDoubleClick(url: url, cmdHeld: cmdHeld)
+        let work = DispatchWorkItem { [weak self] in
+            guard let self,
+                  selectionIndexPaths == [indexPath],
+                  !isAnyVisibleCellEditing
+            else { return }
+            triggerRename(at: indexPath)
+        }
+        pendingRenameWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
     }
 
     private func dispatchDoubleClick(url: URL, cmdHeld: Bool) {

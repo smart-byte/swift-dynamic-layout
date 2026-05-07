@@ -1,5 +1,56 @@
 # Changelog
 
+## v1.2.0 — 2026-05-07
+
+Inline rename for collection-mode cells, plus the protocol +
+context-menu plumbing to drive it from the host.
+
+### `ItemActionHandler.didRequestRename(_:to:)`
+
+New protocol method (with a default no-op so apps that haven't
+migrated keep compiling unchanged). Fired when the user commits a
+new name via inline edit; the host performs the actual filesystem
+rename and decides how to surface failures.
+
+### Inline caption editing on `ThumbnailItem`
+
+- `public var representedFileURL: URL?` — read-only access to the
+  cell's current URL so hosts can resolve cell-level interactions
+  without a parallel index-path map.
+- `public func beginCaptionEditing(commit:cancel:)` — flips the
+  caption label into edit mode, makes it first responder, and
+  pre-selects the basename (everything before the file extension)
+  for files or the whole name for folders, matching Finder.
+- `public var isEditingCaption: Bool` — snapshot flag for hosts
+  that need to gate competing UI.
+- `prepareForReuse()` cancels any in-flight edit — the cell is
+  about to host a different file, so committing whatever the
+  user typed against the old URL would be wrong.
+
+### Collection-view triggers
+
+`NiblessCollectionView` now fires inline rename on:
+
+- **Single click on the already-singly-selected cell**, debounced
+  by ~0.5 s so a fast double-click doesn't get misread as a slow
+  second click.
+- **Return key** when exactly one cell is selected.
+- **Right-click → Rename** entry, single-selection only.
+
+`ItemContextMenuBuilder.menu(for:…)` accepts an optional
+`rename: ((URL) -> Void)?` — collection callers route this back
+through the cell's begin-edit flow; list callers can wire their
+own host-side rename trigger when the time comes.
+
+### Notes
+
+- List-mode rename (NSTableView side) stays host-driven for now —
+  the package couldn't subclass-promote `NiblessTableView` here
+  without further breaking-change risk; voila already wires its
+  own NSEvent monitors locally and drives the text field via
+  `ListRenameController`.
+- 48 unit tests still green.
+
 ## v1.1.2 — 2026-05-07
 
 Bug fix for host-driven selection getting wiped by `NSCollectionView.reloadData()`.
