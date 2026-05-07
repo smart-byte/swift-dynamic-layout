@@ -68,6 +68,20 @@ public class ThumbnailItem: NSCollectionViewItem {
         }
     }
 
+    /// Tracks whether the cursor is currently inside the cell. Drives
+    /// the borderless caption pill's visibility — it stays hidden
+    /// until the user hovers, so the borderless look stays truly
+    /// chrome-free at rest. Other styles ignore hover (their captions
+    /// are always visible up to the small-cell cutoff).
+    private var isHovered = false {
+        didSet {
+            guard oldValue != isHovered else { return }
+            applyCaptionVisibility()
+        }
+    }
+
+    private var hoverTrackingArea: NSTrackingArea?
+
     /// NSCollectionView calls this automatically when the item becomes a
     /// drop target (validateDrop returned `.on` with this item's
     /// indexPath). We layer the visual on top of the cell so the
@@ -85,8 +99,17 @@ public class ThumbnailItem: NSCollectionViewItem {
         plainImageView?.image = nil
         captionLabel?.stringValue = ""
         isSelected = false
+        isHovered = false
         highlightState = .none
         view.layer?.transform = CATransform3DIdentity
+    }
+
+    override public func mouseEntered(with _: NSEvent) {
+        isHovered = true
+    }
+
+    override public func mouseExited(with _: NSEvent) {
+        isHovered = false
     }
 
     override public func apply(_ layoutAttributes: NSCollectionViewLayoutAttributes) {
@@ -174,6 +197,32 @@ public class ThumbnailItem: NSCollectionViewItem {
             dropTargetOverlay.topAnchor.constraint(equalTo: view.topAnchor, constant: 6),
             dropTargetOverlay.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -6),
         ])
+
+        // Hover tracking — `inVisibleRect` keeps the area aligned with
+        // whatever rect the cell is currently showing (cell reuse,
+        // scrolling, layout-attribute changes), no manual updates.
+        let area = NSTrackingArea(
+            rect: view.bounds,
+            options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        view.addTrackingArea(area)
+        hoverTrackingArea = area
+    }
+
+    /// Folds the size-based and hover-based visibility rules for the
+    /// caption pill into a single decision. Called from
+    /// `viewDidLayout` (size changes) and the `isHovered` setter
+    /// (hover changes); the small-cell cutoff still wins over the
+    /// hover gate so tiny grid thumbnails don't pop a caption no
+    /// matter what.
+    private func applyCaptionVisibility() {
+        let cellTooSmall = view.bounds.height < Self.captionMinCellHeight
+        let hideForBorderless = itemStyle == .borderless && !isHovered
+        let hidden = cellTooSmall || hideForBorderless
+        captionLabel?.isHidden = hidden
+        captionPill?.isHidden = hidden
     }
 
     private func setupPhotoFrameStyle() {
@@ -373,12 +422,10 @@ public class ThumbnailItem: NSCollectionViewItem {
         case .borderless: 10
         }
         dropTargetOverlay.layer?.cornerRadius = overlayRadius
-        // Hide the filename caption on cells too small to read it —
-        // tiny grid thumbnails need their full pixel budget for the
-        // image, not for a label that would be illegible anyway.
-        let hideCaption = view.bounds.height < Self.captionMinCellHeight
-        captionLabel?.isHidden = hideCaption
-        captionPill?.isHidden = hideCaption
+        // Caption visibility folds size-based hiding (tiny grid
+        // thumbnails) and hover-based hiding (borderless) into one
+        // decision in `applyCaptionVisibility`.
+        applyCaptionVisibility()
     }
 
     // MARK: - Configure
