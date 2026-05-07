@@ -99,6 +99,14 @@ public class ThumbnailItem: NSCollectionViewItem {
         plainImageView?.image = nil
         captionLabel?.stringValue = ""
         isSelected = false
+        // Snap-reset the borderless pill alpha BEFORE clearing
+        // `isHovered`, so the recycle-driven applyCaptionVisibility
+        // call animates from 0 → 0 (no visible change) instead of
+        // 1 → 0 (visible fade-out for cells that scroll back into
+        // view from a hovered state).
+        if itemStyle == .borderless {
+            captionPill?.alphaValue = 0
+        }
         isHovered = false
         highlightState = .none
         view.layer?.transform = CATransform3DIdentity
@@ -120,13 +128,15 @@ public class ThumbnailItem: NSCollectionViewItem {
         CATransaction.commit()
     }
 
-    /// For `.tile` cells, the visible "frame" is the surrounding tile, but
-    /// only the inner image should fly with the cursor — the dragged
-    /// payload is the file itself, not the chrome we put around it. For
-    /// the other styles the full cell *is* the visual, so the default
-    /// snapshot still applies.
+    /// `.tile` and `.borderless` both render an image-only drag
+    /// preview — chrome (tile backdrop, borderless caption pill)
+    /// shouldn't ride along with the dragged file. `.photoFrame`
+    /// keeps the default super snapshot, which already shows the
+    /// framed image + filename below the way a card-style drag
+    /// should look.
     override public var draggingImageComponents: [NSDraggingImageComponent] {
-        guard itemStyle == .tile,
+        let usesPlainImage = itemStyle == .tile || itemStyle == .borderless
+        guard usesPlainImage,
               let imageView = plainImageView,
               let image = imageView.image
         else {
@@ -219,10 +229,28 @@ public class ThumbnailItem: NSCollectionViewItem {
     /// matter what.
     private func applyCaptionVisibility() {
         let cellTooSmall = view.bounds.height < Self.captionMinCellHeight
-        let hideForBorderless = itemStyle == .borderless && !isHovered
-        let hidden = cellTooSmall || hideForBorderless
-        captionLabel?.isHidden = hidden
-        captionPill?.isHidden = hidden
+        switch itemStyle {
+        case .photoFrame, .tile:
+            // Caption always visible, subject only to the small-cell
+            // cutoff (binary toggle, no animation).
+            captionLabel?.isHidden = cellTooSmall
+            captionPill?.isHidden = cellTooSmall
+        case .borderless:
+            // Hover-only with a short fade. Size cutoff still wins —
+            // tiny cells hide the pill outright instead of briefly
+            // animating a caption that wouldn't be readable anyway.
+            if cellTooSmall {
+                captionPill?.isHidden = true
+                captionPill?.alphaValue = 0
+            } else {
+                captionPill?.isHidden = false
+                NSAnimationContext.runAnimationGroup { ctx in
+                    ctx.duration = 0.15
+                    ctx.allowsImplicitAnimation = true
+                    captionPill?.animator().alphaValue = isHovered ? 1.0 : 0.0
+                }
+            }
+        }
     }
 
     private func setupPhotoFrameStyle() {
@@ -353,9 +381,11 @@ public class ThumbnailItem: NSCollectionViewItem {
 
         // Floating pill: dark capsule centered above the bottom edge,
         // white filename inside. The pill hugs the label width so the
-        // underlying image stays mostly visible.
+        // underlying image stays mostly visible. Starts at alpha 0 so
+        // the first hover-fade animates from 0 → 1, not 1 → 0 → 1.
         let pill = CaptionPill()
         pill.translatesAutoresizingMaskIntoConstraints = false
+        pill.alphaValue = 0
         view.addSubview(pill)
         captionPill = pill
 
