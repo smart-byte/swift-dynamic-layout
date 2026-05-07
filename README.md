@@ -5,7 +5,7 @@
 [![macOS](https://img.shields.io/badge/macOS-14%2B-blue?logo=apple&logoColor=white)](https://www.apple.com/macos/)
 [![Swift](https://img.shields.io/badge/Swift-5.9%2B-orange?logo=swift&logoColor=white)](https://swift.org)
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-1.0.0-lightgrey)](https://github.com/smart-byte/swift-dynamic-layout/releases)
+[![Version](https://img.shields.io/badge/Version-1.1.1-lightgrey)](https://github.com/smart-byte/swift-dynamic-layout/releases)
 
 </div>
 
@@ -19,7 +19,7 @@ A Swift package providing pluggable `NSCollectionViewLayout` algorithms for macO
 ## Installation
 
 ```swift
-.package(url: "https://github.com/smart-byte/swift-dynamic-layout.git", from: "1.0.0"),
+.package(url: "https://github.com/smart-byte/swift-dynamic-layout.git", from: "1.1.0"),
 ```
 
 Add `DynamicLayout` to your target's dependencies.
@@ -78,9 +78,15 @@ struct GalleryView: View {
 
 Orthogonal to layout mode, `ItemStyle` controls how each cell is presented:
 
-- `.photoFrame` — bordered image with caption below
+- `.photoFrame` — white-matte bordered image with caption below; matte thickness scales with the toolbar's `targetSize`, selection renders as an accent border on the matte plus a Finder-style accent pill behind the caption
 - `.tile` — flat tinted tile with caption
-- `.borderless` — image only, optional centred caption pill overlay
+- `.borderless` — image only, hover-revealed caption pill overlay
+
+Selections fade between active (accent) and inactive (secondary) tints based on key-window + first-responder state, matching `NSTableView`'s native list-pane behaviour.
+
+## Spacing
+
+`itemSpacing` (slider-driven `CGFloat`) feeds each layout's `spacingPercentage`. The computed inter-item gap is mirrored into `sectionInset` so the gutter at the scroll edge reads as the same visual gap as between items — no fixed-pt slab around the content.
 
 ## Image providers
 
@@ -104,9 +110,20 @@ public typealias DropPerformer = (NSDraggingInfo, URL?) -> Bool
 
 These are called for both whitespace drops and folder-row drops; the second `URL?` parameter is the destination folder when the drop targets a directory.
 
+In-pane reordering is opt-in via `allowsInternalReorder` (off by default). Most apps drive item order from a sort descriptor or external model state, where a manual reorder would conflict with the authoritative order on the next reload. Cross-pane drags between two collection views always go through the external drop-validator path and are unaffected.
+
 ## Status
 
-`v1.0.0` — the initial public release after extraction from voila. Production-tested in a real file browser with thousands of items per folder.
+`v1.1.1` — Finder-feel polish over the v1.0.0 extraction baseline:
+
+- `photoFrame` matte uses `scaleReference` (toolbar-driven on most layouts, cell-height-driven on `horizontalFlow`) so its thickness reads uniformly across cells of any aspect.
+- Selection rendered as an accent border on the matte plus a Finder-style accent caption pill; inactive panes fade to a secondary tint.
+- `gutter == inter-item-spacing` for all collection layouts.
+- `HorizontalFlowLayout` gains `useSquareCells` (tile-style square cells) and `O(1)` `collectionViewContentSize`.
+- Race-condition fix for transient zero / mid-resize bounds during tab swaps and restart.
+- Folder-cell-first drop affordance, matching `NSTableView`'s native list behaviour.
+
+Production-tested in a real file browser with thousands of items per folder.
 
 ## Releases
 
