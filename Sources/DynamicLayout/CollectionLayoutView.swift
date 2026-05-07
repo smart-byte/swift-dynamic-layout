@@ -146,12 +146,16 @@ public struct CollectionLayoutView: NSViewRepresentable {
         // each body re-render hands us a freshly-allocated handler instance.
         (collectionView as? NiblessCollectionView)?.actionHandler = actionHandler
 
+        // Sanitize the host's selection up-front so out-of-range
+        // index paths don't survive a folder change. Pushing it onto
+        // the collection view is deferred until AFTER any reloadData
+        // — NSCollectionView's `reloadData()` clears
+        // `selectionIndexPaths`, so a pre-reload sync would be wiped
+        // (regression observed via the pinboard's "Open Source Folder"
+        // landing on a hidden / freshly-mounted tab).
         let validSelection = sanitizedSelection(selection, itemCount: layoutItems.count)
         if validSelection != selection {
             selection = validSelection
-        }
-        if collectionView.selectionIndexPaths != validSelection {
-            collectionView.selectionIndexPaths = validSelection
         }
 
         // Save scroll position for the current folder before switching
@@ -177,6 +181,13 @@ public struct CollectionLayoutView: NSViewRepresentable {
             )
         } else if spacingChanged || columnsChanged || targetSizeChanged {
             applyPropertyChange(collectionView: collectionView, coordinator: coordinator)
+        }
+
+        // Push the validated selection now — after any `reloadData`
+        // inside the apply* branches has had a chance to wipe the
+        // collection view's own selection state.
+        if collectionView.selectionIndexPaths != validSelection {
+            collectionView.selectionIndexPaths = validSelection
         }
 
         // Slider drives photo-frame matte thickness via
@@ -271,11 +282,19 @@ public struct CollectionLayoutView: NSViewRepresentable {
     private func crossfadeReload(collectionView: NSCollectionView) {
         let folderURL = folderURL
         let layoutItems = layoutItems
+        // Capture the host's current selection so we can re-apply it
+        // after the deferred `reloadData()` lands. Without this, a
+        // host-set selection (e.g. pinboard's reveal landing on a
+        // freshly-mounted tab) gets wiped by the reload.
+        let pendingSelection = sanitizedSelection(selection, itemCount: layoutItems.count)
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0.12
             collectionView.animator().alphaValue = 0
         } completionHandler: {
             collectionView.reloadData()
+            if collectionView.selectionIndexPaths != pendingSelection {
+                collectionView.selectionIndexPaths = pendingSelection
+            }
             if let url = folderURL,
                let savedIndex = Coordinator.scrollCache[url],
                savedIndex > 0, savedIndex < layoutItems.count
