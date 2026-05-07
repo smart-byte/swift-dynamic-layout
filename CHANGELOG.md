@@ -1,5 +1,25 @@
 # Changelog
 
+## v1.1.2 — 2026-05-07
+
+Bug fix for host-driven selection getting wiped by `NSCollectionView.reloadData()`.
+
+`reloadData()` clears `selectionIndexPaths`, but `updateNSView` was
+syncing the host's selection onto the collection view BEFORE the
+apply-* branches that trigger the reload — so any selection the host
+pushed (e.g. via a "reveal in folder" action landing on a freshly-
+mounted or hidden tab) got wiped immediately.
+
+Two prongs:
+- `updateNSView` sanitises selection up-front but defers the actual
+  push to NSCollectionView until AFTER any reload.
+- `crossfadeReload` (deferred reload inside an alpha-fade
+  `NSAnimationContext`) captures the host's selection BEFORE the
+  animation kicks off and re-applies it inside the completion handler
+  right after the reload lands.
+
+48 unit tests still green.
+
 ## v1.1.1 — 2026-05-07
 
 Patch over v1.1.0 that broke the layout test suite. The

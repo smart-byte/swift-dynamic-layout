@@ -5,7 +5,7 @@
 [![macOS](https://img.shields.io/badge/macOS-14%2B-blue?logo=apple&logoColor=white)](https://www.apple.com/macos/)
 [![Swift](https://img.shields.io/badge/Swift-5.9%2B-orange?logo=swift&logoColor=white)](https://swift.org)
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-1.1.1-lightgrey)](https://github.com/smart-byte/swift-dynamic-layout/releases)
+[![Version](https://img.shields.io/badge/Version-1.1.2-lightgrey)](https://github.com/smart-byte/swift-dynamic-layout/releases)
 
 </div>
 
