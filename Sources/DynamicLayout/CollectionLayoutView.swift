@@ -48,6 +48,12 @@ public struct CollectionLayoutView: NSViewRepresentable {
     /// between two collection views remain unaffected; they go
     /// through the external drop-validator path.
     var allowsInternalReorder: Bool = false
+    /// Whether folder switches play the 240 ms alpha-crossfade.
+    /// `true` (default) preserves the historical look. Setting this
+    /// to `false` reloads instantly via `CATransaction`-disabled
+    /// updates — folder navigation feels noticeably snappier, which
+    /// host apps may want to expose as a user preference.
+    var folderSwitchAnimated: Bool = true
 
     public init(
         layoutItems: Binding<[LayoutItemFrame]>,
@@ -64,7 +70,8 @@ public struct CollectionLayoutView: NSViewRepresentable {
         urlForFrame: @escaping (UUID) -> URL?,
         syncImageProvider: @escaping SyncImageProvider,
         asyncImageProvider: @escaping ImageProvider,
-        allowsInternalReorder: Bool = false
+        allowsInternalReorder: Bool = false,
+        folderSwitchAnimated: Bool = true
     ) {
         _layoutItems = layoutItems
         _selection = selection
@@ -81,6 +88,7 @@ public struct CollectionLayoutView: NSViewRepresentable {
         self.syncImageProvider = syncImageProvider
         self.asyncImageProvider = asyncImageProvider
         self.allowsInternalReorder = allowsInternalReorder
+        self.folderSwitchAnimated = folderSwitchAnimated
     }
 
     public func makeNSView(context: Context) -> NSScrollView {
@@ -250,7 +258,11 @@ public struct CollectionLayoutView: NSViewRepresentable {
         updateLayoutItems(collectionView.collectionViewLayout, items: layoutItems)
 
         if folderChanged {
-            crossfadeReload(collectionView: collectionView)
+            if folderSwitchAnimated {
+                crossfadeReload(collectionView: collectionView)
+            } else {
+                instantReload(collectionView: collectionView)
+            }
         } else if oldIDs.isEmpty {
             // First load into this folder (no previous IDs). Skip the
             // remove+insert animation — there's nothing to fade out
@@ -309,6 +321,29 @@ public struct CollectionLayoutView: NSViewRepresentable {
         }
     }
 
+    private func instantReload(collectionView: NSCollectionView) {
+        // Folder swap with `folderSwitchAnimated == false`. Reloads
+        // synchronously with implicit animations disabled so the new
+        // content appears immediately. Selection + scroll restoration
+        // is preserved.
+        let pendingSelection = sanitizedSelection(selection, itemCount: layoutItems.count)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        collectionView.reloadData()
+        collectionView.layoutSubtreeIfNeeded()
+        if collectionView.selectionIndexPaths != pendingSelection {
+            collectionView.selectionIndexPaths = pendingSelection
+        }
+        if let url = folderURL,
+           let savedIndex = Coordinator.scrollCache[url],
+           savedIndex > 0, savedIndex < layoutItems.count
+        {
+            let ip = IndexPath(item: savedIndex, section: 0)
+            collectionView.scrollToItems(at: [ip], scrollPosition: [.top, .left])
+        }
+        CATransaction.commit()
+    }
+
     /// Diff old vs new UUIDs and animate the remove+insert pairs. Pure
     /// reorders (same UUID set, different positions) fall back to the FLIP
     /// morph so existing items slide rather than flashing.
@@ -337,6 +372,21 @@ public struct CollectionLayoutView: NSViewRepresentable {
             collectionView.layoutSubtreeIfNeeded()
             CATransaction.commit()
             coordinator.animateFromOldFrames(oldFrames, in: collectionView)
+        } else if !folderSwitchAnimated,
+                  removedIndexPaths.count == oldIDs.count,
+                  insertedIndexPaths.count == newIDs.count
+        {
+            // Fully disjoint UUID sets = effective folder swap, even
+            // if `folderChanged` was false at this tick. The folder
+            // binding and the items publish on separate runloop ticks
+            // (the loader is async), so the URL change can land
+            // without items in one update, and the items can land
+            // without a fresh URL in the next. With folder-switch
+            // animation off, treat this as a swap and reload without
+            // per-cell animation. With the animation on, fall through
+            // to the regular per-cell fade so the look matches the
+            // explicit-swap path.
+            instantReload(collectionView: collectionView)
         } else {
             collectionView.animator().performBatchUpdates({
                 collectionView.deleteItems(at: removedIndexPaths)

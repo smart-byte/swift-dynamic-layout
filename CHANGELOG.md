@@ -1,5 +1,26 @@
 # Changelog
 
+## v1.3.0 — 2026-05-21
+
+Optional opt-out from the folder-switch crossfade. The 240 ms alpha
+fade on every folder change made navigation feel sluggish to users
+working at speed; the new toggle keeps the historical look as default
+while letting hosts expose an "instant folder switch" preference.
+
+### `CollectionLayoutView.folderSwitchAnimated`
+
+- New init parameter `folderSwitchAnimated: Bool = true`. Defaults
+  preserve the existing crossfade behavior — no source break for
+  existing call sites.
+- When `false`, folder swaps reload synchronously via
+  `CATransaction`-disabled updates. Selection + scroll-position
+  restoration is preserved.
+- When `false`, the diff path also detects fully disjoint UUID sets
+  (the async two-phase case where the folder URL and the items
+  publish on separate ticks) and falls back to the same instant
+  reload, so the per-cell `.effectFade` doesn't sneak in for what
+  is really a folder swap.
+
 ## v1.2.0 — 2026-05-07
 
 Inline rename for collection-mode cells, plus the protocol +
