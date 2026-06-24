@@ -508,7 +508,16 @@ public class Coordinator: NSObject, NSCollectionViewDataSource, NSCollectionView
     // MARK: - Quick Look Helpers
 
     var selectedURLs: [URL] {
-        parent.selection
+        urls(for: parent.selection)
+    }
+
+    /// Resolves index paths to URLs directly, independent of the SwiftUI
+    /// `selection` binding. Right-click selects programmatically (setting
+    /// `selectionIndexPaths`), which does NOT fire `didSelectItemsAt`, so
+    /// `parent.selection` is stale at that moment — the context menu must
+    /// resolve from the collection view's live `selectionIndexPaths` instead.
+    func urls(for indexPaths: Set<IndexPath>) -> [URL] {
+        indexPaths
             .sorted { $0.item < $1.item }
             .compactMap { idx in
                 guard idx.item < parent.layoutItems.count else { return nil }

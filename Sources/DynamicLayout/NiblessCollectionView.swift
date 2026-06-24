@@ -205,7 +205,11 @@ class NiblessCollectionView: NSCollectionView {
             return
         }
 
-        let urls = coordinator.selectedURLs
+        // Resolve from the collection view's live selection, not the SwiftUI
+        // `selection` binding: the programmatic select above doesn't fire
+        // `didSelectItemsAt`, so the binding (and `coordinator.selectedURLs`)
+        // is still stale here and would bail to a no-op (no menu).
+        let urls = coordinator.urls(for: selectionIndexPaths)
         guard !urls.isEmpty else {
             super.rightMouseDown(with: event)
             return
