@@ -14,7 +14,11 @@ public class WaterfallLayout: NSCollectionViewLayout, LayoutItemsProvider {
     private var contentHeight: CGFloat = 0
     private var computedSpacing: CGFloat = 0
 
-    public var items: [LayoutItemFrame] = []
+    public var items: [LayoutItemFrame] = [] {
+        didSet { preparationState.invalidate() }
+    }
+
+    private var preparationState = LayoutPreparationState()
 
     public var columns: Int = 5
     public var spacingPercentage: CGFloat = 0.05
@@ -22,12 +26,13 @@ public class WaterfallLayout: NSCollectionViewLayout, LayoutItemsProvider {
 
     override public func prepare() {
         super.prepare()
-        visibilityIndex = nil
-
-        cache.removeAll()
-        contentHeight = 0
-
-        guard let collectionView else { return }
+        guard let collectionView else {
+            preparationState.invalidate()
+            visibilityIndex = nil
+            cache.removeAll()
+            contentHeight = 0
+            return
+        }
 
         // Derive spacing from the full bounds first, then mirror it
         // into sectionInset so the gutter at the edge of the scroll
@@ -45,6 +50,14 @@ public class WaterfallLayout: NSCollectionViewLayout, LayoutItemsProvider {
         if spacing > 0 {
             sectionInset = NSEdgeInsets(top: spacing, left: spacing, bottom: spacing, right: spacing)
         }
+
+        guard preparationState.needsPreparation([
+            totalWidth, CGFloat(columns), spacingPercentage,
+            sectionInset.top, sectionInset.left, sectionInset.bottom, sectionInset.right,
+        ]) else { return }
+        visibilityIndex = nil
+        cache.resizeForItemCount(items.count)
+        contentHeight = 0
 
         let width = totalWidth - sectionInset.left - sectionInset.right
         let columnWidth = (width - CGFloat(columns - 1) * spacing) / CGFloat(columns)
@@ -65,13 +78,11 @@ public class WaterfallLayout: NSCollectionViewLayout, LayoutItemsProvider {
         for (index, item) in items.enumerated() {
             let shortestColumn = yOffset.enumerated().min(by: { $0.element < $1.element })?.offset ?? 0
 
-            let indexPath = IndexPath(item: index, section: 0)
             let height = columnWidth / item.aspectRatio
             let frame = CGRect(x: xOffset[shortestColumn], y: yOffset[shortestColumn], width: columnWidth, height: height)
 
-            let attributes = NSCollectionViewLayoutAttributes(forItemWith: indexPath)
+            let attributes = cache[index]
             attributes.frame = frame
-            cache.append(attributes)
 
             yOffset[shortestColumn] += height + spacing
         }

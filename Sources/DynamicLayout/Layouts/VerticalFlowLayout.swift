@@ -13,7 +13,11 @@ public class VerticalFlowLayout: NSCollectionViewLayout, LayoutItemsProvider {
     public var spacingPercentage: CGFloat = 0.02
     public var sectionInset: NSEdgeInsets = .init(top: 20, left: 20, bottom: 20, right: 20)
 
-    public var items: [LayoutItemFrame] = []
+    public var items: [LayoutItemFrame] = [] {
+        didSet { preparationState.invalidate() }
+    }
+
+    private var preparationState = LayoutPreparationState()
 
     private var cache = [NSCollectionViewLayoutAttributes]()
     private var visibilityIndex: LayoutVisibilityIndex?
@@ -22,12 +26,13 @@ public class VerticalFlowLayout: NSCollectionViewLayout, LayoutItemsProvider {
 
     override public func prepare() {
         super.prepare()
-        visibilityIndex = nil
-
-        cache.removeAll()
-        contentHeight = 0
-
-        guard let collectionView else { return }
+        guard let collectionView else {
+            preparationState.invalidate()
+            visibilityIndex = nil
+            cache.removeAll()
+            contentHeight = 0
+            return
+        }
 
         // Derive spacing from the full bounds first, then mirror it
         // into sectionInset so the gutter at the edge of the scroll
@@ -43,17 +48,23 @@ public class VerticalFlowLayout: NSCollectionViewLayout, LayoutItemsProvider {
         if spacing > 0 {
             sectionInset = NSEdgeInsets(top: spacing, left: spacing, bottom: spacing, right: spacing)
         }
+        guard preparationState.needsPreparation([
+            totalWidth, spacingPercentage,
+            sectionInset.top, sectionInset.left, sectionInset.bottom, sectionInset.right,
+        ]) else { return }
+        visibilityIndex = nil
+        cache.resizeForItemCount(items.count)
+        contentHeight = 0
+
         let availableWidth = totalWidth - sectionInset.left - sectionInset.right
 
         var yOffset: CGFloat = sectionInset.top
 
         for (index, item) in items.enumerated() {
-            let indexPath = IndexPath(item: index, section: 0)
-            let attributes = NSCollectionViewLayoutAttributes(forItemWith: indexPath)
+            let attributes = cache[index]
             let itemHeight = availableWidth / item.aspectRatio
 
             attributes.frame = CGRect(x: sectionInset.left, y: yOffset, width: availableWidth, height: itemHeight)
-            cache.append(attributes)
 
             yOffset += itemHeight + spacing
         }

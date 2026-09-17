@@ -15,7 +15,11 @@ public class JustifiedLayout: NSCollectionViewLayout, LayoutItemsProvider {
     private var oldCache: [IndexPath: NSCollectionViewLayoutAttributes] = [:]
     private var contentHeight: CGFloat = 0
 
-    public var items: [LayoutItemFrame] = []
+    public var items: [LayoutItemFrame] = [] {
+        didSet { preparationState.invalidate() }
+    }
+
+    private var preparationState = LayoutPreparationState()
 
     public var targetRowHeight: CGFloat = 200
     public var spacing: CGFloat = 4
@@ -27,12 +31,22 @@ public class JustifiedLayout: NSCollectionViewLayout, LayoutItemsProvider {
 
     override public func prepare() {
         super.prepare()
+        guard let collectionView else {
+            preparationState.invalidate()
+            visibilityIndex = nil
+            cache.removeAll()
+            contentHeight = 0
+            return
+        }
+
+        guard preparationState.needsPreparation([
+            collectionView.bounds.width, targetRowHeight, spacing, useSquareCells ? 1 : 0,
+            sectionInset.top, sectionInset.left, sectionInset.bottom, sectionInset.right,
+        ]) else { return }
         visibilityIndex = nil
-
-        cache.removeAll()
+        cache.resizeForItemCount(items.count)
         contentHeight = 0
-
-        guard let collectionView, !items.isEmpty else { return }
+        guard !items.isEmpty else { return }
 
         let availableWidth = collectionView.bounds.width - sectionInset.left - sectionInset.right
 
@@ -98,10 +112,8 @@ public class JustifiedLayout: NSCollectionViewLayout, LayoutItemsProvider {
 
         for item in items {
             let itemWidth = rowHeight * item.aspectRatio
-            let indexPath = IndexPath(item: item.index, section: 0)
-            let attributes = NSCollectionViewLayoutAttributes(forItemWith: indexPath)
+            let attributes = cache[item.index]
             attributes.frame = CGRect(x: xOffset, y: yOffset, width: itemWidth, height: rowHeight)
-            cache.append(attributes)
 
             xOffset += itemWidth + spacing
         }
@@ -119,9 +131,8 @@ public class JustifiedLayout: NSCollectionViewLayout, LayoutItemsProvider {
     }
 
     override public func layoutAttributesForItem(at indexPath: IndexPath) -> NSCollectionViewLayoutAttributes? {
-        guard indexPath.item < cache.count else { return nil }
-        // Attributes are stored in insertion order, not index order
-        return cache.first { $0.indexPath == indexPath }
+        guard indexPath.section == 0, cache.indices.contains(indexPath.item) else { return nil }
+        return cache[indexPath.item]
     }
 
     override public func shouldInvalidateLayout(forBoundsChange newBounds: NSRect) -> Bool {

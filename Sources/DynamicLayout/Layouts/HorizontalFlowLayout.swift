@@ -10,7 +10,11 @@ import AppKit
 public class HorizontalFlowLayout: NSCollectionViewFlowLayout, LayoutItemsProvider {
     public var spacingPercentage: CGFloat = 0.02
 
-    public var items: [LayoutItemFrame] = []
+    public var items: [LayoutItemFrame] = [] {
+        didSet { preparationState.invalidate() }
+    }
+
+    private var preparationState = LayoutPreparationState()
 
     /// Forces every cell to be a perfect square at the available
     /// height — used by the tile item style so the framed tile fills
@@ -37,12 +41,13 @@ public class HorizontalFlowLayout: NSCollectionViewFlowLayout, LayoutItemsProvid
 
     override public func prepare() {
         super.prepare()
-        visibilityIndex = nil
-
-        cache.removeAll()
-        contentWidth = 0
-
-        guard let collectionView else { return }
+        guard let collectionView else {
+            preparationState.invalidate()
+            visibilityIndex = nil
+            cache.removeAll()
+            contentWidth = 0
+            return
+        }
 
         // Same gutter-matches-gap policy as Waterfall / VerticalFlow:
         // derive spacing from the full bounds first, mirror it into
@@ -58,6 +63,14 @@ public class HorizontalFlowLayout: NSCollectionViewFlowLayout, LayoutItemsProvid
         if spacing > 0 {
             sectionInset = NSEdgeInsets(top: spacing, left: spacing, bottom: spacing, right: spacing)
         }
+        guard preparationState.needsPreparation([
+            totalHeight, spacingPercentage, useSquareCells ? 1 : 0,
+            sectionInset.top, sectionInset.left, sectionInset.bottom, sectionInset.right,
+        ]) else { return }
+        visibilityIndex = nil
+        cache.resizeForItemCount(items.count)
+        contentWidth = 0
+
         let availableHeight = totalHeight - sectionInset.top - sectionInset.bottom
 
         minimumInteritemSpacing = spacing
@@ -76,12 +89,10 @@ public class HorizontalFlowLayout: NSCollectionViewFlowLayout, LayoutItemsProvid
         var xOffset: CGFloat = sectionInset.left
 
         for (index, item) in items.enumerated() {
-            let indexPath = IndexPath(item: index, section: 0)
-            let attributes = NSCollectionViewLayoutAttributes(forItemWith: indexPath)
+            let attributes = cache[index]
             let itemWidth = useSquareCells ? availableHeight : availableHeight * item.aspectRatio
 
             attributes.frame = CGRect(x: xOffset, y: sectionInset.top, width: itemWidth, height: availableHeight)
-            cache.append(attributes)
 
             xOffset += itemWidth + spacing
         }
