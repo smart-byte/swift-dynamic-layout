@@ -232,7 +232,8 @@ class NiblessCollectionView: NSCollectionView {
                 else { return }
                 triggerRename(at: indexPath)
             },
-            moveToTrash: { [weak self] urls in self?.actionHandler?.didRequestMoveToTrash(urls) }
+            moveToTrash: { [weak self] urls in self?.actionHandler?.didRequestMoveToTrash(urls) },
+            additionalItems: actionHandler?.additionalContextMenuItems(for: urls) ?? []
         )
         NSMenu.popUpContextMenu(menu, with: event, for: self)
     }
