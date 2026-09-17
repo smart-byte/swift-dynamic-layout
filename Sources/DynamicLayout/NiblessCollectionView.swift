@@ -22,6 +22,11 @@ class NiblessCollectionView: NSCollectionView {
     private var keyWindowObservers: [NSObjectProtocol] = []
 
     weak var quickLookCoordinator: Coordinator?
+
+    /// A click into an inactive window selects right away, like Finder.
+    override func acceptsFirstMouse(for _: NSEvent?) -> Bool {
+        true
+    }
     var actionHandler: (any ItemActionHandler)?
 
     /// Pending "Finder slow-second-click" rename trigger. Cancelled

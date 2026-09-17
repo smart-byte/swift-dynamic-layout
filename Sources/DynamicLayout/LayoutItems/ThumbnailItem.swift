@@ -204,7 +204,7 @@ public class ThumbnailItem: NSCollectionViewItem {
     // MARK: - View Setup (style-dependent)
 
     override public func loadView() {
-        view = NSView()
+        view = FirstMouseItemView()
         view.wantsLayer = true
         view.layer?.masksToBounds = true
         view.autoresizesSubviews = true
@@ -837,5 +837,20 @@ private final class CaptionEditAdapter: NSObject, NSTextFieldDelegate {
         } else {
             commit(trimmed)
         }
+    }
+}
+
+/// Root view of every item. AppKit only delivers a click into an inactive
+/// window when the hit view accepts first mouse, so while the window is not
+/// key the whole item answers the hit test itself and the collection view
+/// gets the click through the responder chain — first click selects.
+final class FirstMouseItemView: NSView {
+    override func acceptsFirstMouse(for _: NSEvent?) -> Bool {
+        true
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard let window, !window.isKeyWindow else { return super.hitTest(point) }
+        return bounds.contains(convert(point, from: superview)) ? self : nil
     }
 }
