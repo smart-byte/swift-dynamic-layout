@@ -12,6 +12,7 @@ import AppKit
 /// Horizontal scrolling. Like JustifiedLayout but for columns instead of rows.
 public class HorizontalJustifiedLayout: NSCollectionViewFlowLayout, LayoutItemsProvider {
     private var cache = [NSCollectionViewLayoutAttributes]()
+    private var visibilityIndex: LayoutVisibilityIndex?
     private var oldCache: [IndexPath: NSCollectionViewLayoutAttributes] = [:]
     private var contentWidth: CGFloat = 0
 
@@ -26,6 +27,7 @@ public class HorizontalJustifiedLayout: NSCollectionViewFlowLayout, LayoutItemsP
 
     override public func prepare() {
         super.prepare()
+        visibilityIndex = nil
 
         cache.removeAll()
         contentWidth = 0
@@ -117,7 +119,8 @@ public class HorizontalJustifiedLayout: NSCollectionViewFlowLayout, LayoutItemsP
     }
 
     override public func layoutAttributesForElements(in rect: NSRect) -> [NSCollectionViewLayoutAttributes] {
-        cache.filter { $0.frame.intersects(rect) }
+        if visibilityIndex == nil { visibilityIndex = LayoutVisibilityIndex(cache, horizontal: true) }
+        return visibilityIndex?.attributes(in: rect) ?? []
     }
 
     override public func layoutAttributesForItem(at indexPath: IndexPath) -> NSCollectionViewLayoutAttributes? {

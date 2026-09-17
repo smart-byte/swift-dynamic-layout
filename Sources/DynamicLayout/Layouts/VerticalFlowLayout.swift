@@ -16,11 +16,13 @@ public class VerticalFlowLayout: NSCollectionViewLayout, LayoutItemsProvider {
     public var items: [LayoutItemFrame] = []
 
     private var cache = [NSCollectionViewLayoutAttributes]()
+    private var visibilityIndex: LayoutVisibilityIndex?
     private var oldCache: [IndexPath: NSCollectionViewLayoutAttributes] = [:]
     private var contentHeight: CGFloat = 0
 
     override public func prepare() {
         super.prepare()
+        visibilityIndex = nil
 
         cache.removeAll()
         contentHeight = 0
@@ -64,7 +66,8 @@ public class VerticalFlowLayout: NSCollectionViewLayout, LayoutItemsProvider {
     }
 
     override public func layoutAttributesForElements(in rect: NSRect) -> [NSCollectionViewLayoutAttributes] {
-        cache.filter { $0.frame.intersects(rect) }
+        if visibilityIndex == nil { visibilityIndex = LayoutVisibilityIndex(cache) }
+        return visibilityIndex?.attributes(in: rect) ?? []
     }
 
     override public func layoutAttributesForItem(at indexPath: IndexPath) -> NSCollectionViewLayoutAttributes? {

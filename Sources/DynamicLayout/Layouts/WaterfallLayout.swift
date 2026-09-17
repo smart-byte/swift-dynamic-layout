@@ -9,6 +9,7 @@ import AppKit
 
 public class WaterfallLayout: NSCollectionViewLayout, LayoutItemsProvider {
     private var cache = [NSCollectionViewLayoutAttributes]()
+    private var visibilityIndex: LayoutVisibilityIndex?
     private var oldCache: [IndexPath: NSCollectionViewLayoutAttributes] = [:]
     private var contentHeight: CGFloat = 0
     private var computedSpacing: CGFloat = 0
@@ -21,6 +22,7 @@ public class WaterfallLayout: NSCollectionViewLayout, LayoutItemsProvider {
 
     override public func prepare() {
         super.prepare()
+        visibilityIndex = nil
 
         cache.removeAll()
         contentHeight = 0
@@ -84,7 +86,8 @@ public class WaterfallLayout: NSCollectionViewLayout, LayoutItemsProvider {
     }
 
     override public func layoutAttributesForElements(in rect: NSRect) -> [NSCollectionViewLayoutAttributes] {
-        cache.filter { $0.frame.intersects(rect) }
+        if visibilityIndex == nil { visibilityIndex = LayoutVisibilityIndex(cache) }
+        return visibilityIndex?.attributes(in: rect) ?? []
     }
 
     override public func layoutAttributesForItem(at indexPath: IndexPath) -> NSCollectionViewLayoutAttributes? {
