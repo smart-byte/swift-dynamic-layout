@@ -5,12 +5,15 @@
 //  Created by Mario Heubach on 02.03.26.
 //
 
-import Foundation
+import AppKit
 
 /// Callback protocol for item actions handled by the app layer. Calls
 /// always come from AppKit views on the main thread.
 @MainActor
 public protocol ItemActionHandler: AnyObject {
+    /// Optional host actions shared by list and collection context menus.
+    func additionalContextMenuItems(for urls: [URL]) -> [NSMenuItem]
+
     /// Plain double-click on a file. Convention: open in default app.
     func didRequestOpenFile(_ url: URL)
 
@@ -56,6 +59,8 @@ public protocol ItemActionHandler: AnyObject {
 }
 
 public extension ItemActionHandler {
+    func additionalContextMenuItems(for _: [URL]) -> [NSMenuItem] { [] }
+
     /// Default no-op preserves source compatibility for callers
     /// upgrading from <1.2 — apps that don't wire rename simply get
     /// a no-effect cell edit.

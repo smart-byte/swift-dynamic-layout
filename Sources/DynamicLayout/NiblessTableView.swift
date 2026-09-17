@@ -64,7 +64,8 @@ public class NiblessTableView: NSTableView {
             openInNewWindow: { [weak self] url in self?.actionHandler?.didRequestOpenInNewWindow(url) },
             openInNewPane: { [weak self] url in self?.actionHandler?.didRequestOpenInNewPane(url) },
             copyPath: { [weak self] urls in self?.actionHandler?.didRequestCopyPath(urls) },
-            moveToTrash: { [weak self] urls in self?.actionHandler?.didRequestMoveToTrash(urls) }
+            moveToTrash: { [weak self] urls in self?.actionHandler?.didRequestMoveToTrash(urls) },
+            additionalItems: actionHandler?.additionalContextMenuItems(for: urls) ?? []
         )
     }
 

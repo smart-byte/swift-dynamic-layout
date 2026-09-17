@@ -12,6 +12,18 @@ import Testing
 
 @MainActor
 struct ItemContextMenuBuilderTests {
+    @Test func hostItemsAreIncludedWithoutChangingTheirAction() {
+        let action = NSSelectorFromString("extractArchive:")
+        let item = NSMenuItem(title: "Extract Here", action: action, keyEquivalent: "")
+        let menu = ItemContextMenuBuilder.menu(
+            for: [URL(fileURLWithPath: "/tmp/archive.zip")],
+            quickLookToggle: {}, detailPreview: { _ in },
+            additionalItems: [item]
+        )
+        #expect(menu.items.contains { $0 === item })
+        #expect(item.action == action)
+    }
+
     @Test func renameEntryAppearsForSingleSelection() {
         let menu = ItemContextMenuBuilder.menu(
             for: [URL(fileURLWithPath: "/tmp/foo.txt")],

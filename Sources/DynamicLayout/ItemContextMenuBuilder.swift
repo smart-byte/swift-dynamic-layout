@@ -19,7 +19,8 @@ public enum ItemContextMenuBuilder {
         openInNewPane: ((URL) -> Void)? = nil,
         copyPath: (([URL]) -> Void)? = nil,
         rename: ((URL) -> Void)? = nil,
-        moveToTrash: (([URL]) -> Void)? = nil
+        moveToTrash: (([URL]) -> Void)? = nil,
+        additionalItems: [NSMenuItem] = []
     ) -> NSMenu {
         let menu = NSMenu()
         guard let firstURL = urls.first else { return menu }
@@ -29,6 +30,9 @@ public enum ItemContextMenuBuilder {
         addPreviewItems(to: menu, urls: urls, isMulti: isMulti, quickLookToggle: quickLookToggle, detailPreview: detailPreview)
         menu.addItem(.separator())
         addOpenWithSubmenu(to: menu, urls: urls, firstURL: firstURL)
+        for item in additionalItems {
+            menu.addItem(item)
+        }
         if !isMulti, isDirectory {
             addOpenElsewhereItems(
                 to: menu,
