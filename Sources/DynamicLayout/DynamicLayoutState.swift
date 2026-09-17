@@ -23,6 +23,8 @@ public struct DynamicLayoutItemsSnapshot: Equatable {
         hasher.combine(count)
         for item in items {
             hasher.combine(item.id)
+            hasher.combine(item.size.width)
+            hasher.combine(item.size.height)
         }
         orderSignature = hasher.finalize()
     }

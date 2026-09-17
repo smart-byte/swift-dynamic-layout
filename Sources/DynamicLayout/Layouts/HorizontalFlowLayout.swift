@@ -24,6 +24,7 @@ public class HorizontalFlowLayout: NSCollectionViewFlowLayout, LayoutItemsProvid
     public var onLayoutPrepared: ((CGFloat) -> Void)?
 
     private var cache = [NSCollectionViewLayoutAttributes]()
+    private var visibilityIndex: LayoutVisibilityIndex?
     private var oldCache: [IndexPath: NSCollectionViewLayoutAttributes] = [:]
     /// Total content width, mirrored from the last `prepare()` so
     /// `collectionViewContentSize` is O(1) — NSCollectionView reads
@@ -36,6 +37,7 @@ public class HorizontalFlowLayout: NSCollectionViewFlowLayout, LayoutItemsProvid
 
     override public func prepare() {
         super.prepare()
+        visibilityIndex = nil
 
         cache.removeAll()
         contentWidth = 0
@@ -100,7 +102,8 @@ public class HorizontalFlowLayout: NSCollectionViewFlowLayout, LayoutItemsProvid
     }
 
     override public func layoutAttributesForElements(in rect: NSRect) -> [NSCollectionViewLayoutAttributes] {
-        cache.filter { $0.frame.intersects(rect) }
+        if visibilityIndex == nil { visibilityIndex = LayoutVisibilityIndex(cache, horizontal: true) }
+        return visibilityIndex?.attributes(in: rect) ?? []
     }
 
     override public func layoutAttributesForItem(at indexPath: IndexPath) -> NSCollectionViewLayoutAttributes? {

@@ -7,6 +7,9 @@ import SwiftUI
 
 public struct CollectionLayoutView: NSViewRepresentable {
     @Binding var layoutItems: [LayoutItemFrame]
+    /// Change this identity whenever items, their order or geometry change.
+    /// Omit it to retain automatic content comparison for existing hosts.
+    var itemsRevision: UUID?
     @Binding var selection: Set<IndexPath>
     @Binding var layoutMode: LayoutMode
     @Binding var itemStyle: ItemStyle
@@ -57,6 +60,7 @@ public struct CollectionLayoutView: NSViewRepresentable {
 
     public init(
         layoutItems: Binding<[LayoutItemFrame]>,
+        itemsRevision: UUID? = nil,
         selection: Binding<Set<IndexPath>> = .constant([]),
         layoutMode: Binding<LayoutMode>,
         itemStyle: Binding<ItemStyle> = .constant(.photoFrame),
@@ -74,6 +78,7 @@ public struct CollectionLayoutView: NSViewRepresentable {
         folderSwitchAnimated: Bool = true
     ) {
         _layoutItems = layoutItems
+        self.itemsRevision = itemsRevision
         _selection = selection
         _layoutMode = layoutMode
         _itemStyle = itemStyle
@@ -136,7 +141,7 @@ public struct CollectionLayoutView: NSViewRepresentable {
             return
         }
 
-        let itemsSnapshot = DynamicLayoutItemsSnapshot(items: layoutItems)
+        let itemsSnapshot = coordinator.itemsSnapshotCache.resolve(revision: itemsRevision) { layoutItems }
         let itemsChanged = coordinator.lastItemsSnapshot != itemsSnapshot
         let layoutChanged = coordinator.lastLayoutMode != layoutMode
         let spacingChanged = coordinator.lastSpacing != itemSpacing
@@ -423,6 +428,7 @@ public class Coordinator: NSObject, NSCollectionViewDataSource, NSCollectionView
     var lastItemCount: Int = -1
     var lastItemIDs: [UUID] = []
     var lastItemsSnapshot: DynamicLayoutItemsSnapshot?
+    var itemsSnapshotCache = ItemsSnapshotCache()
     var lastSpacing: CGFloat = -1
     var lastColumns: Int = -1
     var lastTargetSize: CGFloat?
