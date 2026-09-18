@@ -15,6 +15,17 @@ import Quartz
 /// External callers interact with CollectionLayoutView (NSViewRepresentable)
 /// rather than with this raw AppKit subclass.
 class NiblessCollectionView: NSCollectionView {
+    override func setFrameSize(_ newSize: NSSize) {
+        let layout = collectionViewLayout
+        let newBounds = NSRect(origin: bounds.origin, size: newSize)
+        let needsGeometry = frame.size != newSize && (layout?.shouldInvalidateLayout(forBoundsChange: newBounds) ?? false)
+        super.setFrameSize(newSize)
+        // Retained hosting views can catch up through a frame assignment rather
+        // than AppKit's live-resize path. Explicitly invalidate that geometry so
+        // visible cells do not retain the previous tab/window dimensions.
+        if needsGeometry { layout?.invalidateLayout() }
+    }
+
     private var programmaticClasses: [NSUserInterfaceItemIdentifier: NSCollectionViewItem.Type] = [:]
     /// Tokens for window-key notifications. Re-registered on
     /// `viewDidMoveToWindow` so a tab tearoff that moves us into a
