@@ -112,10 +112,11 @@ public struct CollectionLayoutView: NSViewRepresentable {
         context.coordinator.collectionView = collectionView
         collectionView.actionHandler = actionHandler
 
-        collectionView.registerProgrammatic(
-            ThumbnailItem.self,
-            forItemWithIdentifier: NSUserInterfaceItemIdentifier(rawValue: "ThumbnailItem")
-        )
+        // One reuse pool per style: a cell builds its subviews for one
+        // `ItemStyle` in `loadView`, so a dequeued cell must match.
+        for style in ItemStyle.allCases {
+            collectionView.registerProgrammatic(ThumbnailItem.self, forItemWithIdentifier: Self.itemIdentifier(for: style))
+        }
 
         let layout = createLayout()
         collectionView.collectionViewLayout = layout
@@ -413,6 +414,10 @@ public struct CollectionLayoutView: NSViewRepresentable {
         CATransaction.commit()
     }
 
+    static func itemIdentifier(for style: ItemStyle) -> NSUserInterfaceItemIdentifier {
+        NSUserInterfaceItemIdentifier(rawValue: "ThumbnailItem.\(style.rawValue)")
+    }
+
     public func makeCoordinator() -> Coordinator {
         Coordinator(self)
     }
@@ -464,7 +469,7 @@ public class Coordinator: NSObject, NSCollectionViewDataSource, NSCollectionView
     }
 
     public func collectionView(_ collectionView: NSCollectionView, itemForRepresentedObjectAt indexPath: IndexPath) -> NSCollectionViewItem {
-        let identifier = NSUserInterfaceItemIdentifier(rawValue: "ThumbnailItem")
+        let identifier = CollectionLayoutView.itemIdentifier(for: parent.itemStyle)
 
         guard indexPath.item < parent.layoutItems.count else {
             return collectionView.makeItem(withIdentifier: identifier, for: indexPath)

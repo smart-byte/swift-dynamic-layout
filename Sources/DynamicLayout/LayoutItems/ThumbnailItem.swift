@@ -94,19 +94,17 @@ public class ThumbnailItem: NSCollectionViewItem {
         }
     }
 
-    /// Tracks whether the cursor is currently inside the cell. Drives
+    /// Set by the collection view's single hover tracking area. Drives
     /// the borderless caption pill's visibility — it stays hidden
     /// until the user hovers, so the borderless look stays truly
     /// chrome-free at rest. Other styles ignore hover (their captions
     /// are always visible up to the small-cell cutoff).
-    private var isHovered = false {
+    var isHovered = false {
         didSet {
             guard oldValue != isHovered else { return }
             applyCaptionVisibility()
         }
     }
-
-    private var hoverTrackingArea: NSTrackingArea?
 
     /// NSCollectionView calls this automatically when the item becomes a
     /// drop target (validateDrop returned `.on` with this item's
@@ -140,14 +138,6 @@ public class ThumbnailItem: NSCollectionViewItem {
         isHovered = false
         highlightState = .none
         view.layer?.transform = CATransform3DIdentity
-    }
-
-    override public func mouseEntered(with _: NSEvent) {
-        isHovered = true
-    }
-
-    override public func mouseExited(with _: NSEvent) {
-        isHovered = false
     }
 
     override public func apply(_ layoutAttributes: NSCollectionViewLayoutAttributes) {
@@ -243,18 +233,6 @@ public class ThumbnailItem: NSCollectionViewItem {
         // fires when the property changes after `loadView`, so we
         // need this explicit one-shot push too.
         borderImageView?.scaleReference = scaleReference
-
-        // Hover tracking — `inVisibleRect` keeps the area aligned with
-        // whatever rect the cell is currently showing (cell reuse,
-        // scrolling, layout-attribute changes), no manual updates.
-        let area = NSTrackingArea(
-            rect: view.bounds,
-            options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
-            owner: self,
-            userInfo: nil
-        )
-        view.addTrackingArea(area)
-        hoverTrackingArea = area
     }
 
     /// Folds the size-based and hover-based visibility rules for the
