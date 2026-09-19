@@ -48,6 +48,7 @@ class NiblessCollectionView: NSCollectionView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        installHoverTrackingIfNeeded()
         let center = NotificationCenter.default
         keyWindowObservers.forEach(center.removeObserver)
         keyWindowObservers.removeAll()
@@ -115,18 +116,67 @@ class NiblessCollectionView: NSCollectionView {
         forItemWithIdentifier identifier: NSUserInterfaceItemIdentifier
     ) {
         programmaticClasses[identifier] = itemClass
+        // AppKit's reuse queue only serves identifiers registered with it.
+        register(itemClass, forItemWithIdentifier: identifier)
     }
 
+    /// Dequeues from AppKit's reuse queue. Instantiating here instead made
+    /// every scrolled-in cell a fresh view controller: new subviews, new
+    /// constraints in the window's layout engine, new thumbnail request.
     override func makeItem(
         withIdentifier identifier: NSUserInterfaceItemIdentifier,
-        for _: IndexPath
+        for indexPath: IndexPath
     ) -> NSCollectionViewItem {
-        if let itemClass = programmaticClasses[identifier] {
-            let item = itemClass.init(nibName: nil, bundle: nil)
-            item.identifier = identifier
-            return item
+        guard programmaticClasses[identifier] != nil else {
+            fatalError("Unknown item identifier: \(identifier.rawValue)")
         }
-        fatalError("Unknown item identifier: \(identifier.rawValue)")
+        let item = super.makeItem(withIdentifier: identifier, for: indexPath)
+        item.identifier = identifier
+        return item
+    }
+
+    // MARK: - Hover
+
+    /// One tracking area for the whole collection: per-cell areas made AppKit
+    /// walk every cell's subviews on each scroll tick to mark them dirty.
+    private var hoverTrackingArea: NSTrackingArea?
+    private weak var hoveredItem: ThumbnailItem?
+
+    private func installHoverTrackingIfNeeded() {
+        guard hoverTrackingArea == nil else { return }
+        let area = NSTrackingArea(
+            rect: .zero,
+            options: [.mouseMoved, .mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        hoverTrackingArea = area
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        updateHover(at: convert(event.locationInWindow, from: nil))
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        setHoveredItem(nil)
+    }
+
+    /// Internal for tests; `point` is in the collection view's coordinates.
+    func updateHover(at point: NSPoint) {
+        let item = indexPathForItem(at: point).flatMap { self.item(at: $0) as? ThumbnailItem }
+        setHoveredItem(item)
+    }
+
+    private func setHoveredItem(_ item: ThumbnailItem?) {
+        if hoveredItem !== item {
+            hoveredItem?.isHovered = false
+        }
+        // Always re-assert: a reused cell resets its flag in `prepareForReuse`.
+        item?.isHovered = true
+        hoveredItem = item
     }
 
     // MARK: - Quick Look + Inline Rename Triggers
