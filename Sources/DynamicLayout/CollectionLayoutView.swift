@@ -298,23 +298,29 @@ public struct CollectionLayoutView: NSViewRepresentable {
             ctx.duration = 0.12
             collectionView.animator().alphaValue = 0
         } completionHandler: { [weak coordinator] in
-            // The selection may have changed during the fade. Read the
-            // coordinator's current binding, not the snapshot from its start.
-            if let coordinator, coordinator.currentFolderURL == folderURL {
-                coordinator.reloadCollection()
-                coordinator.syncSelection()
-                if let url = folderURL,
-                   let savedIndex = Coordinator.scrollCache[url],
-                   savedIndex > 0, savedIndex < coordinator.parent.layoutItems.count
-                {
-                    let ip = IndexPath(item: savedIndex, section: 0)
-                    collectionView.scrollToItems(at: [ip], scrollPosition: [.top, .left])
-                }
+            if let coordinator {
+                Self.finishCrossfadeReload(collectionView: collectionView, coordinator: coordinator, folderURL: folderURL)
             }
             NSAnimationContext.runAnimationGroup { ctx in
                 ctx.duration = 0.12
                 collectionView.animator().alphaValue = 1
             }
+        }
+    }
+
+    /// The deferred half of `crossfadeReload`. The selection may have changed
+    /// during the fade, so it reads the coordinator's current binding rather
+    /// than a snapshot from the fade's start.
+    static func finishCrossfadeReload(collectionView: NSCollectionView, coordinator: Coordinator, folderURL: URL?) {
+        guard coordinator.currentFolderURL == folderURL else { return }
+        coordinator.reloadCollection()
+        coordinator.syncSelection()
+        if let url = folderURL,
+           let savedIndex = Coordinator.scrollCache[url],
+           savedIndex > 0, savedIndex < coordinator.parent.layoutItems.count
+        {
+            let ip = IndexPath(item: savedIndex, section: 0)
+            collectionView.scrollToItems(at: [ip], scrollPosition: [.top, .left])
         }
     }
 

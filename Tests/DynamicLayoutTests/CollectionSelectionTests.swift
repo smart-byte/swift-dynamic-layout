@@ -86,22 +86,19 @@ struct CollectionSelectionTests {
         #expect(fixture.collection.selectionIndexPaths == paths(1))
     }
 
-    @Test func deferredReloadUsesLatestSelection() async throws {
+    @Test func deferredReloadUsesLatestSelection() {
         let fixture = SelectionFixture(mode: .waterfall)
         fixture.selected = paths(1, 3)
         fixture.update()
         let reloads = fixture.collection.reloadCount
-        fixture.coordinator.parent.crossfadeReload(collectionView: fixture.collection, coordinator: fixture.coordinator)
+        // The fade's completion runs after the host has moved on and must
+        // apply the binding as it is then, not as it was when the fade began.
         fixture.selected = paths(2, 4)
         fixture.update()
-        // Other AppKit suites can occupy the main actor for several seconds.
-        // Give the completion actual scheduling opportunities instead of
-        // expiring a wall-clock deadline while this test cannot resume.
-        for _ in 0 ..< 100 {
-            if fixture.collection.reloadCount > reloads { break }
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        #expect(fixture.collection.reloadCount > reloads)
+        CollectionLayoutView.finishCrossfadeReload(
+            collectionView: fixture.collection, coordinator: fixture.coordinator, folderURL: fixture.folder
+        )
+        #expect(fixture.collection.reloadCount == reloads + 1)
         #expect(fixture.collection.selectionIndexPaths == paths(2, 4))
         #expect(fixture.selected == paths(2, 4))
     }
