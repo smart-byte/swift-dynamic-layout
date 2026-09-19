@@ -59,7 +59,8 @@ extension Coordinator {
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        collectionView.reloadData()
+        reloadCollection()
+        syncSelection()
         CATransaction.commit()
 
         animateReorder(

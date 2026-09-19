@@ -85,10 +85,10 @@ extension CollectionLayoutView {
     /// Style-driven flags (e.g. `useSquareCells` for `.tile`) need to take
     /// effect on the live layout, then we invalidate so cells reflow
     /// before the cell views themselves get re-rendered with the new style.
-    func applyItemStyleChange(collectionView: NSCollectionView) {
+    func applyItemStyleChange(collectionView: NSCollectionView, coordinator: Coordinator) {
         updateLayoutProperties(collectionView.collectionViewLayout)
         collectionView.collectionViewLayout?.invalidateLayout()
-        collectionView.reloadData()
+        coordinator.reloadCollection()
     }
 
     func updateLayoutProperties(_ layout: NSCollectionViewLayout?) {

@@ -1,5 +1,3 @@
-// swiftlint:disable file_length
-
 import Quartz
 import SwiftUI
 
@@ -133,9 +131,10 @@ public struct CollectionLayoutView: NSViewRepresentable {
 
     public func updateNSView(_ nsView: NSScrollView, context: Context) {
         guard let collectionView = nsView.documentView as? NSCollectionView else { return }
+        updateCollectionView(collectionView, coordinator: context.coordinator)
+    }
 
-        let coordinator = context.coordinator
-
+    func updateCollectionView(_ collectionView: NSCollectionView, coordinator: Coordinator) {
         // Skip collection view updates during active drag or drop processing
         if coordinator.isDragging || coordinator.isProcessingDrop {
             coordinator.parent = self
@@ -197,13 +196,6 @@ public struct CollectionLayoutView: NSViewRepresentable {
             applyPropertyChange(collectionView: collectionView, coordinator: coordinator)
         }
 
-        // Push the validated selection now — after any `reloadData`
-        // inside the apply* branches has had a chance to wipe the
-        // collection view's own selection state.
-        if collectionView.selectionIndexPaths != validSelection {
-            collectionView.selectionIndexPaths = validSelection
-        }
-
         // Slider drives photo-frame matte thickness via
         // `scaleReference` on each cell. Push the new value to
         // already-visible cells when the slider moves; new / reused
@@ -220,8 +212,11 @@ public struct CollectionLayoutView: NSViewRepresentable {
 
         if coordinator.lastItemStyle != itemStyle {
             coordinator.lastItemStyle = itemStyle
-            applyItemStyleChange(collectionView: collectionView)
+            applyItemStyleChange(collectionView: collectionView, coordinator: coordinator)
         }
+        // Include style reloads, too. An unchanged binding must not undo
+        // AppKit's selection while a mouse gesture is still being tracked.
+        coordinator.syncSelection()
     }
 
     // MARK: - Update Helpers
@@ -242,7 +237,7 @@ public struct CollectionLayoutView: NSViewRepresentable {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         collectionView.collectionViewLayout = newLayout
-        collectionView.reloadData()
+        coordinator.reloadCollection()
         collectionView.layoutSubtreeIfNeeded()
         CATransaction.commit()
 
@@ -265,9 +260,9 @@ public struct CollectionLayoutView: NSViewRepresentable {
 
         if folderChanged {
             if folderSwitchAnimated {
-                crossfadeReload(collectionView: collectionView)
+                crossfadeReload(collectionView: collectionView, coordinator: coordinator)
             } else {
-                instantReload(collectionView: collectionView)
+                instantReload(collectionView: collectionView, coordinator: coordinator)
             }
         } else if oldIDs.isEmpty {
             // First load into this folder (no previous IDs). Skip the
@@ -275,7 +270,7 @@ public struct CollectionLayoutView: NSViewRepresentable {
             // and 100 simultaneous fade-ins look noisy.
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            collectionView.reloadData()
+            coordinator.reloadCollection()
             collectionView.layoutSubtreeIfNeeded()
             CATransaction.commit()
         } else {
@@ -297,28 +292,24 @@ public struct CollectionLayoutView: NSViewRepresentable {
         }
     }
 
-    private func crossfadeReload(collectionView: NSCollectionView) {
+    func crossfadeReload(collectionView: NSCollectionView, coordinator: Coordinator) {
         let folderURL = folderURL
-        let layoutItems = layoutItems
-        // Capture the host's current selection so we can re-apply it
-        // after the deferred `reloadData()` lands. Without this, a
-        // host-set selection (e.g. pinboard's reveal landing on a
-        // freshly-mounted tab) gets wiped by the reload.
-        let pendingSelection = sanitizedSelection(selection, itemCount: layoutItems.count)
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0.12
             collectionView.animator().alphaValue = 0
-        } completionHandler: {
-            collectionView.reloadData()
-            if collectionView.selectionIndexPaths != pendingSelection {
-                collectionView.selectionIndexPaths = pendingSelection
-            }
-            if let url = folderURL,
-               let savedIndex = Coordinator.scrollCache[url],
-               savedIndex > 0, savedIndex < layoutItems.count
-            {
-                let ip = IndexPath(item: savedIndex, section: 0)
-                collectionView.scrollToItems(at: [ip], scrollPosition: [.top, .left])
+        } completionHandler: { [weak coordinator] in
+            // The selection may have changed during the fade. Read the
+            // coordinator's current binding, not the snapshot from its start.
+            if let coordinator, coordinator.currentFolderURL == folderURL {
+                coordinator.reloadCollection()
+                coordinator.syncSelection()
+                if let url = folderURL,
+                   let savedIndex = Coordinator.scrollCache[url],
+                   savedIndex > 0, savedIndex < coordinator.parent.layoutItems.count
+                {
+                    let ip = IndexPath(item: savedIndex, section: 0)
+                    collectionView.scrollToItems(at: [ip], scrollPosition: [.top, .left])
+                }
             }
             NSAnimationContext.runAnimationGroup { ctx in
                 ctx.duration = 0.12
@@ -327,19 +318,16 @@ public struct CollectionLayoutView: NSViewRepresentable {
         }
     }
 
-    private func instantReload(collectionView: NSCollectionView) {
+    private func instantReload(collectionView: NSCollectionView, coordinator: Coordinator) {
         // Folder swap with `folderSwitchAnimated == false`. Reloads
         // synchronously with implicit animations disabled so the new
         // content appears immediately. Selection + scroll restoration
         // is preserved.
-        let pendingSelection = sanitizedSelection(selection, itemCount: layoutItems.count)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        collectionView.reloadData()
+        coordinator.reloadCollection()
         collectionView.layoutSubtreeIfNeeded()
-        if collectionView.selectionIndexPaths != pendingSelection {
-            collectionView.selectionIndexPaths = pendingSelection
-        }
+        coordinator.syncSelection()
         if let url = folderURL,
            let savedIndex = Coordinator.scrollCache[url],
            savedIndex > 0, savedIndex < layoutItems.count
@@ -374,7 +362,7 @@ public struct CollectionLayoutView: NSViewRepresentable {
             let oldFrames = coordinator.captureVisibleItemFrames(collectionView)
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            collectionView.reloadData()
+            coordinator.reloadCollection()
             collectionView.layoutSubtreeIfNeeded()
             CATransaction.commit()
             coordinator.animateFromOldFrames(oldFrames, in: collectionView)
@@ -392,12 +380,15 @@ public struct CollectionLayoutView: NSViewRepresentable {
             // per-cell animation. With the animation on, fall through
             // to the regular per-cell fade so the look matches the
             // explicit-swap path.
-            instantReload(collectionView: collectionView)
+            instantReload(collectionView: collectionView, coordinator: coordinator)
         } else {
             collectionView.animator().performBatchUpdates({
                 collectionView.deleteItems(at: removedIndexPaths)
                 collectionView.insertItems(at: insertedIndexPaths)
             }, completionHandler: nil)
+            // Structural changes can move/drop selected index paths even
+            // when the binding still contains the same numeric indices.
+            coordinator.lastAppliedSelection = nil
         }
     }
 
@@ -427,6 +418,7 @@ public struct CollectionLayoutView: NSViewRepresentable {
 
 public class Coordinator: NSObject, NSCollectionViewDataSource, NSCollectionViewDelegate {
     var parent: CollectionLayoutView
+    var lastAppliedSelection: Set<IndexPath>?
 
     var lastLayoutMode: LayoutMode?
     var lastItemStyle: ItemStyle?
@@ -506,13 +498,13 @@ public class Coordinator: NSObject, NSCollectionViewDataSource, NSCollectionView
         return item
     }
 
-    public func collectionView(_: NSCollectionView, didSelectItemsAt indexPaths: Set<IndexPath>) {
-        parent.selection.formUnion(indexPaths)
+    public func collectionView(_ collectionView: NSCollectionView, didSelectItemsAt _: Set<IndexPath>) {
+        publishSelection(from: collectionView)
         QuickLookHelpers.reloadPanelIfVisible()
     }
 
-    public func collectionView(_: NSCollectionView, didDeselectItemsAt indexPaths: Set<IndexPath>) {
-        parent.selection.subtract(indexPaths)
+    public func collectionView(_ collectionView: NSCollectionView, didDeselectItemsAt _: Set<IndexPath>) {
+        publishSelection(from: collectionView)
         QuickLookHelpers.reloadPanelIfVisible()
     }
 
