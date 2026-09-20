@@ -110,8 +110,10 @@ public struct CollectionLayoutView: NSViewRepresentable {
         context.coordinator.collectionView = collectionView
         collectionView.actionHandler = actionHandler
 
-        // One reuse pool per style: a cell builds its subviews for one
-        // `ItemStyle` in `loadView`, so a dequeued cell must match.
+        // One identifier per style. Cells are instantiated per request
+        // rather than dequeued, so this only fills the identifier → class
+        // map; the split keeps the identifier honest about which
+        // `ItemStyle` the cell built its subviews for in `loadView`.
         for style in ItemStyle.allCases {
             collectionView.registerProgrammatic(ThumbnailItem.self, forItemWithIdentifier: Self.itemIdentifier(for: style))
         }

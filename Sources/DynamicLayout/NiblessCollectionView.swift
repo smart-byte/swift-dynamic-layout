@@ -115,24 +115,35 @@ class NiblessCollectionView: NSCollectionView {
         _ itemClass: NSCollectionViewItem.Type,
         forItemWithIdentifier identifier: NSUserInterfaceItemIdentifier
     ) {
+        // Deliberately NOT `register(_:forItemWithIdentifier:)`: we never
+        // dequeue (see `makeItem`), so handing the class to AppKit's reuse
+        // queue would only buy us its `_NSCollectionViewCore` code path.
         programmaticClasses[identifier] = itemClass
-        // AppKit's reuse queue only serves identifiers registered with it.
-        register(itemClass, forItemWithIdentifier: identifier)
     }
 
-    /// Dequeues from AppKit's reuse queue. Instantiating here instead made
-    /// every scrolled-in cell a fresh view controller: new subviews, new
-    /// constraints in the window's layout engine, new thumbnail request.
+    /// Instantiates a fresh item per request instead of dequeuing.
+    ///
+    /// `super.makeItem` routes into `_NSCollectionViewCore`'s
+    /// `dequeueReusableItemWithReuseIdentifier:forIndexPath:`, which throws
+    /// on macOS 26 and takes the host app down (reliably reproducible by
+    /// switching the layout). Until that is understood and worked around,
+    /// we pay for a new view controller per cell rather than crash.
     override func makeItem(
         withIdentifier identifier: NSUserInterfaceItemIdentifier,
-        for indexPath: IndexPath
+        for _: IndexPath
     ) -> NSCollectionViewItem {
-        guard programmaticClasses[identifier] != nil else {
-            fatalError("Unknown item identifier: \(identifier.rawValue)")
+        if let itemClass = programmaticClasses[identifier] {
+            let item = itemClass.init(nibName: nil, bundle: nil)
+            item.identifier = identifier
+            return item
         }
-        let item = super.makeItem(withIdentifier: identifier, for: indexPath)
-        item.identifier = identifier
-        return item
+        fatalError("Unknown item identifier: \(identifier.rawValue)")
+    }
+
+    /// Internal for tests: the class an identifier resolves to, or `nil` when
+    /// it was never registered — `makeItem` traps on those.
+    func registeredItemClass(for identifier: NSUserInterfaceItemIdentifier) -> NSCollectionViewItem.Type? {
+        programmaticClasses[identifier]
     }
 
     // MARK: - Hover
@@ -174,7 +185,8 @@ class NiblessCollectionView: NSCollectionView {
         if hoveredItem !== item {
             hoveredItem?.isHovered = false
         }
-        // Always re-assert: a reused cell resets its flag in `prepareForReuse`.
+        // Always re-assert: the cell under the cursor may have been rebuilt
+        // (reload, layout switch) since the last hover update.
         item?.isHovered = true
         hoveredItem = item
     }

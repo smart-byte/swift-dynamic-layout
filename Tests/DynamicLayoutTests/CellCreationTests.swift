@@ -2,10 +2,67 @@ import AppKit
 @testable import DynamicLayout
 import Testing
 
+/// `NiblessCollectionView` deliberately does **not** dequeue: `super.makeItem`
+/// routes into `_NSCollectionViewCore`, which throws on macOS 26 and crashes
+/// the host on a layout switch. These tests pin the instantiate-per-request
+/// contract that replaces it.
 @MainActor
-struct CellReuseTests {
-    /// Scrolling through the whole content must dequeue cells, not build one per item.
-    @Test func scrollingReusesCellsInsteadOfCreatingNewOnes() throws {
+struct CellCreationTests {
+    @Test func makeItemReturnsATypedItemCarryingItsIdentifier() throws {
+        let identifier = NSUserInterfaceItemIdentifier("probe")
+        let collection = NiblessCollectionView(frame: NSRect(x: 0, y: 0, width: 400, height: 400))
+        collection.registerProgrammatic(CountingCell.self, forItemWithIdentifier: identifier)
+
+        let item = collection.makeItem(withIdentifier: identifier, for: IndexPath(item: 0, section: 0))
+
+        #expect(item is CountingCell)
+        #expect(item.identifier == identifier)
+    }
+
+    /// Each request builds its own cell — no shared instance handed back from
+    /// a queue, so a cell's state can never leak into another index path.
+    @Test func eachRequestBuildsItsOwnCell() throws {
+        let identifier = NSUserInterfaceItemIdentifier("probe")
+        let collection = NiblessCollectionView(frame: NSRect(x: 0, y: 0, width: 400, height: 400))
+        collection.registerProgrammatic(CountingCell.self, forItemWithIdentifier: identifier)
+        CountingCell.instances = 0
+
+        let first = collection.makeItem(withIdentifier: identifier, for: IndexPath(item: 0, section: 0))
+        let second = collection.makeItem(withIdentifier: identifier, for: IndexPath(item: 1, section: 0))
+
+        #expect(first !== second)
+        #expect(CountingCell.instances == 2)
+    }
+
+    /// Only registered identifiers resolve to a class; `makeItem` traps on the
+    /// rest (untestable directly — a `fatalError` cannot be caught).
+    @Test func onlyRegisteredIdentifiersResolveToAClass() {
+        let identifier = NSUserInterfaceItemIdentifier("probe")
+        let collection = NiblessCollectionView(frame: NSRect(x: 0, y: 0, width: 400, height: 400))
+        collection.registerProgrammatic(CountingCell.self, forItemWithIdentifier: identifier)
+
+        #expect(collection.registeredItemClass(for: identifier) == CountingCell.self)
+        #expect(collection.registeredItemClass(for: .init("unregistered")) == nil)
+    }
+
+    /// Every style `CollectionLayoutView` registers must resolve — the
+    /// data source asks for whichever one the current `itemStyle` maps to.
+    @Test func everyItemStyleIdentifierIsDistinctAndRegistrable() {
+        let collection = NiblessCollectionView(frame: NSRect(x: 0, y: 0, width: 400, height: 400))
+        for style in ItemStyle.allCases {
+            collection.registerProgrammatic(ThumbnailItem.self, forItemWithIdentifier: CollectionLayoutView.itemIdentifier(for: style))
+        }
+        let identifiers = Set(ItemStyle.allCases.map { CollectionLayoutView.itemIdentifier(for: $0) })
+
+        #expect(identifiers.count == ItemStyle.allCases.count)
+        for identifier in identifiers {
+            #expect(collection.registeredItemClass(for: identifier) == ThumbnailItem.self)
+        }
+    }
+
+    /// Scrolling a long collection keeps producing usable cells all the way
+    /// down. (Before the macOS 26 revert this asserted dequeuing instead.)
+    @Test func scrollingKeepsProducingUsableCells() throws {
         let layout = WaterfallLayout()
         layout.columns = 4
         layout.items = makeItems(aspectRatios: Array(repeating: 1, count: 400))
@@ -24,8 +81,7 @@ struct CellReuseTests {
 
         collection.reloadData()
         settle(scroll)
-        let visible = collection.visibleItems().count
-        #expect(visible > 0)
+        #expect(collection.visibleItems().count > 0)
 
         var offset: CGFloat = 0
         while offset < layout.collectionViewContentSize.height {
@@ -33,9 +89,11 @@ struct CellReuseTests {
             scroll.contentView.scroll(to: NSPoint(x: 0, y: offset))
             scroll.reflectScrolledClipView(scroll.contentView)
             settle(scroll)
+            #expect(collection.visibleItems().allSatisfy { $0 is CountingCell })
         }
-        #expect(CountingCell.instances < layout.items.count)
-        #expect(CountingCell.instances <= visible * 3)
+        // Cells are built, never dequeued, so the run must have created at
+        // least the first screenful.
+        #expect(CountingCell.instances > 0)
     }
 
     @Test func hoverFollowsTheCellUnderTheCursor() throws {
@@ -99,7 +157,7 @@ private final class ProbeDataSource: NSObject, NSCollectionViewDataSource {
 
 @MainActor
 private final class ThumbnailDataSource: NSObject, NSCollectionViewDataSource {
-    static let identifier = NSUserInterfaceItemIdentifier("ThumbnailItem.tile")
+    static let identifier = CollectionLayoutView.itemIdentifier(for: .tile)
     let count: Int
     init(count: Int) {
         self.count = count
