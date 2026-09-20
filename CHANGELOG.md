@@ -1,5 +1,36 @@
 # Changelog
 
+## v1.6.2 — 2026-09-20
+
+Hotfix: reverts the cell dequeuing introduced in v1.6.0. No API change.
+
+### Why
+
+v1.6.0 changed `NiblessCollectionView.makeItem(withIdentifier:for:)` from
+instantiating a cell to dequeuing one via `super.makeItem`. On macOS 26
+that call lands in the rewritten `_NSCollectionViewCore`
+(`_dequeueReusableViewOfKind:withIdentifier:forIndexPath:viewCategory:`),
+which throws an Objective-C exception and takes the host app down.
+Switching the layout reproduces it reliably; it shipped in voila 0.5.0
+and was confirmed by two crash reports.
+
+### What changed
+
+- `makeItem(withIdentifier:for:)` instantiates from the registered class
+  again (`itemClass.init(nibName:bundle:)`, identifier assigned, unknown
+  identifiers still trap).
+- `registerProgrammatic` no longer calls AppKit's
+  `register(_:forItemWithIdentifier:)` — with nothing being dequeued it
+  only bought us the crashing code path.
+- Kept from v1.6.0: the single hover tracking area on the collection view
+  (instead of one per cell), and the per-`ItemStyle` item identifiers.
+  Those are independent of reuse.
+
+The performance work the reuse change was after — not rebuilding a view
+controller, its subviews and its thumbnail request for every scrolled-in
+cell — still stands and will be redone in a way that does not depend on
+`_NSCollectionViewCore`'s dequeue path.
+
 ## v1.3.0 — 2026-05-21
 
 Optional opt-out from the folder-switch crossfade. The 240 ms alpha
